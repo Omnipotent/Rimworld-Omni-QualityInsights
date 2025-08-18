@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+  <MainButtonDef>
+    <defName>QualityInsights_LogTab</defName>
+    <label>Quality log</label>
+    <description>Browse all recorded quality rolls.</description>
+    <order>9950</order>
+    <tabWindowClass>QualityInsights.UI.MainTabWindow_QualityLog</tabWindowClass>
+    <buttonVisible>true</buttonVisible>
+    <hotKey>MainTab_ToggleWorld</hotKey>
+  </MainButtonDef>
+</Defs>

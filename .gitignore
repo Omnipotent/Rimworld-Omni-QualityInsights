@@ -1,0 +1,82 @@
+*DEPRECATED
+
+# -----------------------------
+# OS miscellany
+# -----------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# -----------------------------
+# IDEs / editors
+# -----------------------------
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+# VS Code: keep workspace files only if you want to share them
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# -----------------------------
+# .NET build outputs
+# -----------------------------
+/Source/**/bin/
+/Source/**/obj/
+/Source/**/Debug/
+/Source/**/Release/
+/Source/**/TestResults/
+/Source/**/.vs/
+*.cache
+*.pdb
+*.ilk
+*.obj
+*.log
+*.tlog
+*.tmp
+*.nupkg
+*.snupkg
+
+# Per-project overrides
+*.csproj.user
+*.csproj.DotSettings
+*.csproj.DotSettings.user
+
+# -----------------------------
+# Mod packaging outputs
+# -----------------------------
+# Assemblies folder contains your built mod DLL. Choose ONE of these blocks.
+
+# (A) If you DO want to commit the compiled DLL (common for mod repos):
+#   – keep the DLL(s), ignore everything else in Assemblies.
+#   – helpful when users clone and drop the mod without building.
+# Assemblies/*
+!Assemblies/*.dll
+
+# (B) If you prefer “source-only” repo (CI or local build produces DLLs):
+#   – uncomment the next line and comment out the two lines above.
+# Assemblies/
+
+# -----------------------------
+# Temporary / artifacts
+# -----------------------------
+*.orig
+*.bak
+*.tmp
+*.swp
+*.swo
+*.zip
+*.7z
+
+# -----------------------------
+# Rider/Resharper caches (if used)
+# -----------------------------
+.ReSharper*/
+*_Resharper.*/
+.idea/.idea.*

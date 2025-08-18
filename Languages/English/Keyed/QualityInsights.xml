@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <QI_Settings_Title>QualityInsights settings</QI_Settings_Title>
+  <QI_Settings_EnableLogging>Enable quality logging</QI_Settings_EnableLogging>
+  <QI_Settings_EnableLiveChances>Enable live chances widget</QI_Settings_EnableLiveChances>
+  <QI_Settings_EnableCheat>Enable dev cheat: always highest tier ≥ threshold</QI_Settings_EnableCheat>
+  <QI_Settings_MinCheatChance>Threshold (fraction, e.g. 0.02 = 2%)</QI_Settings_MinCheatChance>
+  <QI_Settings_Samples>Estimation samples (per pawn/skill)</QI_Settings_Samples>
+  <QI_OpenLog>Open quality log</QI_OpenLog>
+  <QI_ExportCSV>Export CSV</QI_ExportCSV>
+  <QI_LiveOdds>Quality odds</QI_LiveOdds>
+</LanguageData>

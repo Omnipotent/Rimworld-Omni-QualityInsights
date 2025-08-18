@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>QualityInsights</name>
+  <author>Omni</author>
+  <packageId>omni.qualityinsights</packageId>
+  <supportedVersions>
+    <li>1.6</li>
+    <li>1.5</li>
+    <li>1.4</li>
+  </supportedVersions>
+  <description>
+    Quality log + live quality odds + optional dev cheat to force the highest tier with ≥ configurable probability (default 2%).
+
+    • Logs every crafted/built item with: pawn, skill and level, quality, inspiration/specialist, time, and time-ago.
+    • Shows live Excellent/Masterwork/Legendary chances (sampled from the games actual quality algorithm) on work tables.
+    • Optional dev cheat: always pick the highest tier whose chance ≥ threshold. Legendary still requires legal bumps (Inspiration/Production Specialist).
+  </description>
+</ModMetaData>

@@ -1,0 +1,101 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <Optimize>true</Optimize>
+    <AssemblyName>QualityInsights</AssemblyName>
+    <RootNamespace>QualityInsights</RootNamespace>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- Point this to your RimWorld Managed folder.
+       Example Windows:  C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed
+       Example Linux:    ~/.local/share/Steam/steamapps/common/RimWorld/RimWorldLinux_Data/Managed
+       My Folder Loc:    E:\SteamLibrary\steamapps\common\RimWorld\RimWorldWin64_Data\Managed
+       -->
+  <!-- <PropertyGroup>
+    <RimWorldManaged Condition="'$(RimWorldManaged)'==''">$(MSBuildThisFileDirectory)..\..\..\..\RimWorldWin64_Data\Managed</RimWorldManaged>
+  </PropertyGroup> -->
+  <!-- <PropertyGroup>
+    <RimWorldManaged>E:\SteamLibrary\steamapps\common\RimWorld\RimWorldWin64_Data\Managed</RimWorldManaged>
+  </PropertyGroup> -->
+  <PropertyGroup>
+    <RimWorldManaged>$(RIMWORLD_MANAGED)</RimWorldManaged>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RimWorldManaged)' == ''"> <!-- Falls back to hardcoded path if `RIMWORLD_MANAGED` envvar not defined -->
+    <RimWorldManaged>E:\SteamLibrary\steamapps\common\RimWorld\RimWorldWin64_Data\Managed</RimWorldManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldManaged)\Assembly-CSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(RimWorldManaged)\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(RimWorldManaged)\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(RimWorldManaged)\UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(RimWorldManaged)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(RimWorldManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>E:\SteamLibrary\steamapps\workshop\content\294100\2009463077\Current\Assemblies\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+  </ItemGroup>
+
+  <!-- <PropertyGroup>
+    <HarmonyDll>$(HARMONY_DLL)</HarmonyDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony">
+      <HintPath Condition="'$(HarmonyDll)' != ''">$(HarmonyDll)</HintPath>
+      <HintPath Condition="'$(HarmonyDll)' == ''">
+        E:\SteamLibrary\steamapps\workshop\content\294100\2009463077\Current\Assemblies\0Harmony.dll
+      </HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup> -->
+
+  <!-- Do NOT add <Compile Include="**\*.cs"/>; SDK already includes all .cs files. -->
+  <!-- <ItemGroup>
+    <Compile Include="**\*.cs" />
+  </ItemGroup> -->
+
+  <!-- <PropertyGroup>
+    <PostBuildEvent>mkdir "$(SolutionDir)..\..\Assemblies" 2&gt;NUL &amp; copy /Y "$(TargetPath)" "$(SolutionDir)..\..\Assemblies\$(TargetFileName)"</PostBuildEvent>
+  </PropertyGroup> -->
+
+  <!-- Robust copy to Assemblies (works even when SolutionDir is empty) -->
+  <!-- <Target Name="AfterBuild">
+    <PropertyGroup>
+      <ModRoot>$(MSBuildThisFileDirectory)..\..\..</ModRoot>
+      <OutDir>$(ModRoot)\Assemblies</OutDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(OutDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(OutDir)\$(TargetFileName)" SkipUnchangedFiles="true" />
+  </Target> -->
+  <Target Name="AfterBuild">
+    <PropertyGroup>
+      <!-- csproj is at Source\QualityInsights\ → two levels up is the mod root -->
+      <ModRoot>$(MSBuildThisFileDirectory)..\..</ModRoot>
+      <OutDir>$(ModRoot)\Assemblies</OutDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(OutDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(OutDir)\$(TargetFileName)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
