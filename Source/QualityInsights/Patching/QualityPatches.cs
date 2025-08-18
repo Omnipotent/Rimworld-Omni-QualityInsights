@@ -221,11 +221,15 @@ namespace QualityInsights.Patching
                 if (builtThing == null) return;
 
                 // Cache for AfterSetQuality
-                try { _productToWorker.Remove(builtThing); } catch { /* ignore */ }
-                _productToWorker.Add(builtThing, ctx.worker);
+                var target = builtThing;
+                if (target is MinifiedThing m && m.InnerThing != null)
+                    target = m.InnerThing;
+
+                try { _productToWorker.Remove(target); } catch { /* ignore */ }
+                _productToWorker.Add(target, ctx.worker);
 
                 if (DebugLogs)
-                    Log.Message($"[QI] Construction bound: {P(ctx.worker)} -> {builtThing.LabelCap}");
+                    Log.Message($"[QI] Construction bound: {P(ctx.worker)} -> {target.LabelCap}");
             }
             catch { /* keep gameplay safe */ }
         }

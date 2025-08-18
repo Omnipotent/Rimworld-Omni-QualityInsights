@@ -148,6 +148,11 @@ namespace QualityInsights.UI
             if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity) ls.Label("Inspiration: Inspired Creativity (+2 quality tiers)");
             if (QualityRules.IsProductionSpecialist(pawn)) ls.Label("Role: Production Specialist (+1 tier)");
 
+            // after chances are computed and before ls.End()
+            bool legendaryPossible = chances.TryGetValue(QualityCategory.Legendary, out var pLegend) && pLegend > 0f;
+            if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity && legendaryPossible)
+                ls.Label("Note: Legendary is guaranteed while Inspired Creativity is active for this recipe/pawn.");
+
             ls.End();
         }
 

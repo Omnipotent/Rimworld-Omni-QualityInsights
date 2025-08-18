@@ -16,25 +16,22 @@ namespace QualityInsights.Prob
             foreach (QualityCategory qc in Enum.GetValues(typeof(QualityCategory)))
                 counts[qc] = 0;
 
-            // Guard rails
             if (pawn == null || skill == null)
                 return ZeroResult();
+
             samples = Math.Max(100, samples);
 
-            // Simulate vanilla quality generation + tier offsets
             for (int i = 0; i < samples; i++)
             {
                 var rolled = QualityUtility.GenerateQualityCreatedByPawn(pawn, skill);
                 var adj = AdjustForInspirationAndRoles(pawn, rolled);
 
-                // Optional cap if your rules disallow Legendary
                 if (adj == QualityCategory.Legendary && !QualityRules.LegendaryAllowedFor(pawn))
                     adj = QualityCategory.Masterwork;
 
                 counts[adj] = counts[adj] + 1;
             }
 
-            // Normalize
             var result = new Dictionary<QualityCategory, float>();
             foreach (var kv in counts)
                 result[kv.Key] = kv.Value / (float)samples;
@@ -64,7 +61,6 @@ namespace QualityInsights.Prob
 
             if (tiers == 0) return baseQ;
 
-            // Apply tier bumps with clamping to Legendary
             var elevated = baseQ;
             for (int i = 0; i < tiers; i++)
             {
