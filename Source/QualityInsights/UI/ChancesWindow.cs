@@ -11,6 +11,16 @@ namespace QualityInsights.UI
 {
     public class ChancesWindow : Window
     {
+        private static readonly QualityCategory[] TierOrder = new[]
+        {
+            QualityCategory.Awful,
+            QualityCategory.Poor,
+            QualityCategory.Normal,
+            QualityCategory.Good,
+            QualityCategory.Excellent,
+            QualityCategory.Masterwork,
+            QualityCategory.Legendary
+        };
         private readonly Building_WorkTable table;
 
         // Current selections
@@ -272,9 +282,18 @@ namespace QualityInsights.UI
             // -------------------------------
             var chances = GetChances(pawn, skill, cachedProductDef);
 
-            DrawPercentRow(ls, "Excellent", GetPct(chances, QualityCategory.Excellent));
-            DrawPercentRow(ls, "Masterwork", GetPct(chances, QualityCategory.Masterwork));
-            DrawPercentRow(ls, "Legendary", GetPct(chances, QualityCategory.Legendary));
+            // Show all tiers so the rows add up to 100%
+            float total = 0f;
+            foreach (var qc in TierOrder)
+            {
+                var p = GetPct(chances, qc);
+                total += p;
+                DrawPercentRow(ls, qc.ToString(), p);
+            }
+
+            // Optional tiny footer to confirm totals (rounding may show 99.99% or 100.01%)
+            ls.Gap(2f);
+            ls.Label($"Total: {total.ToString("P2")}");
 
             ls.GapLine();
             var level = pawn.skills?.GetSkill(skill)?.Level ?? 0;
