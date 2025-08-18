@@ -60,6 +60,41 @@ namespace QualityInsights.UI
             return SkillDefOf.Crafting;
         }
 
+        private bool TryGetActiveRecipe(out RecipeDef recipe, out Pawn worker)
+        {
+            recipe = null;
+            worker = null;
+
+            var map = table?.Map;
+            if (map == null) return false;
+
+            // Check all player pawns currently spawned on the map
+            foreach (var p in map.mapPawns?.AllPawnsSpawned ?? Enumerable.Empty<Pawn>())
+            {
+                try
+                {
+                    // Only pawns currently doing a bill
+                    if (p?.CurJobDef != JobDefOf.DoBill) continue;
+
+                    var job = p.CurJob;
+                    // Must be working on THIS table
+                    if (job == null || job.targetA.Thing != table) continue;
+
+                    // Job carries the bill (and thus the recipe)
+                    var bill = job.bill;
+                    var r = bill?.recipe;
+                    if (r == null) continue;
+
+                    recipe = r;
+                    worker = p;
+                    return true;
+                }
+                catch { /* safe */ }
+            }
+            return false;
+        }
+
+
         private static bool ThingDefHasCompQuality(ThingDef def)
         {
             if (def == null || def.comps == null) return false;
@@ -198,19 +233,38 @@ namespace QualityInsights.UI
             closeOnClickedOutside = true;
             draggable = true;
 
-            // Default recipe: first quality-capable recipe on this table
+            // Build the cached recipe list once
             var recipes = GetRecipesOnce();
-            selectedRecipe = table.BillStack?.Bills?.OfType<Bill_Production>()?.FirstOrDefault()?.recipe
-                             ?? recipes.FirstOrDefault();
 
-            // Initialize derived caches from the starting recipe
-            cachedProductDef = selectedRecipe?.products?.FirstOrDefault()?.thingDef;
-            cachedSkill = ResolveSkill(selectedRecipe, cachedProductDef);
-            RebuildEligiblePawns();
+            // Prefer the currently active bill on THIS table (if any)
+            if (TryGetActiveRecipe(out var activeRecipe, out var activeWorker))
+            {
+                // Set recipe and pawn from live job
+                selectedRecipe  = activeRecipe;
+                cachedProductDef = selectedRecipe?.products?.FirstOrDefault()?.thingDef;
+                cachedSkill     = ResolveSkill(selectedRecipe, cachedProductDef);
+                RebuildEligiblePawns();
 
-            // Default pawn: best eligible
-            selectedPawn = cachedEligiblePawns?.FirstOrDefault()
-                           ?? ColonyPawnsOnMap(table.Map).FirstOrDefault();
+                // If the live worker is eligible for the resolved skill, select them; otherwise pick best
+                selectedPawn = (activeWorker != null && IsPawnEligible(activeWorker, cachedSkill))
+                    ? activeWorker
+                    : (cachedEligiblePawns?.FirstOrDefault() ?? ColonyPawnsOnMap(table.Map).FirstOrDefault());
+            }
+            else
+            {
+                // Fallback: first bill on this table or first quality-capable recipe
+                selectedRecipe = table.BillStack?.Bills?.OfType<Bill_Production>()?.FirstOrDefault()?.recipe
+                                ?? recipes.FirstOrDefault();
+
+                cachedProductDef = selectedRecipe?.products?.FirstOrDefault()?.thingDef;
+                cachedSkill      = ResolveSkill(selectedRecipe, cachedProductDef);
+                RebuildEligiblePawns();
+
+                // Default pawn: best eligible
+                selectedPawn = cachedEligiblePawns?.FirstOrDefault()
+                            ?? ColonyPawnsOnMap(table.Map).FirstOrDefault();
+            }
+
         }
 
         public override void DoWindowContents(Rect inRect)
