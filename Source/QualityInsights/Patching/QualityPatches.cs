@@ -103,13 +103,15 @@ namespace QualityInsights.Patching
             if (settings.enableCheat && _forcedQuality.HasValue)
                 __result = _forcedQuality.Value;
 
-            _currentPawn = null; _currentSkill = null; _forcedQuality = null;
+            // Do NOT clear here; AfterSetQuality needs these.
+            // They’ll naturally be overwritten by the next roll.
+            // _currentPawn = null; _currentSkill = null; _forcedQuality = null;
         }
 
         private static QualityCategory? TryComputeCheatOverride(Pawn pawn, SkillDef skill)
         {
             var s = QualityInsightsMod.Settings; if (!s.enableCheat) return null;
-            var chances = QualityEstimator.EstimateChances(pawn, skill, null, s.estimationSamples);
+            var chances = QualityEstimator.EstimateChances(pawn, skill, s.estimationSamples);
             foreach (var qc in Enum.GetValues(typeof(QualityCategory)).Cast<QualityCategory>().OrderByDescending(q => q))
             {
                 if (chances.TryGetValue(qc, out var p) && p + 1e-6f >= s.minCheatChance)
@@ -179,35 +181,68 @@ namespace QualityInsights.Patching
             __result = __result.Concat(new[] { cmd });
         }
 
-        // public static void AfterSetQuality(CompQuality __instance, QualityCategory q, ArtGenerationContext source)
         public static void AfterSetQuality(CompQuality __instance, QualityCategory q)
         {
-            Log.Message($"[QualityInsights] SetQuality -> {q} on {__instance.parent?.LabelCap}");
-
             if (!QualityInsightsMod.Settings.enableLogging) return;
             var thing = __instance?.parent; if (thing == null) return;
 
-            // Try to infer worker + skill (safe fallbacks)
-            Pawn worker = null;
-            SkillDef skill = thing.def.IsBuildingArtificial ? SkillDefOf.Construction : SkillDefOf.Crafting;
+            // Prefer the worker from the current roll (thread-static), then try art author
+            Pawn worker = _currentPawn;
+            SkillDef skill = _currentSkill ?? (thing.def.IsBuildingArtificial ? SkillDefOf.Construction : SkillDefOf.Crafting);
 
-            try
+            if (worker == null)
             {
-                // Best-effort: author from art (different game versions expose different members)
-                var compArt = thing.TryGetComp<CompArt>();
-                if (compArt != null)
+                try
                 {
-                    // Try property 'Author' first
-                    var authorProp = compArt.GetType().GetProperty("Author");
-                    if (authorProp != null) worker = authorProp.GetValue(compArt) as Pawn;
-                    // (If null, we just proceed with worker == null)
+                    var compArt = thing.TryGetComp<CompArt>();
+                    if (compArt != null)
+                    {
+                        // Try several known shapes across versions/mods
+                        Pawn? pick(object o)
+                        {
+                            switch (o)
+                            {
+                                case Pawn p: return p;
+                                case Thing t when t is Pawn p2: return p2;
+                                default: return null;
+                            }
+                        }
+
+                        var t = compArt.GetType();
+
+                        // Property "Author"
+                        var propAuthor = t.GetProperty("Author", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        worker = propAuthor != null ? pick(propAuthor.GetValue(compArt)) : worker;
+
+                        // Field "author"
+                        if (worker == null)
+                        {
+                            var f = t.GetField("author", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (f != null) worker = pick(f.GetValue(compArt));
+                        }
+
+                        // Field "authorPawn"
+                        if (worker == null)
+                        {
+                            var f = t.GetField("authorPawn", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (f != null) worker = pick(f.GetValue(compArt));
+                        }
+
+                        // Property "CreatorPawn"
+                        if (worker == null)
+                        {
+                            var p = t.GetProperty("CreatorPawn", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (p != null) worker = pick(p.GetValue(compArt));
+                        }
+                    }
                 }
+                catch { /* ignore */ }
             }
-            catch { /* ignore */ }
+
 
             try
             {
-                var comp = Current.Game.GetComponent<QualityInsights.Logging.QualityLogComponent>();
+                var comp = QualityInsights.Logging.QualityLogComponent.Ensure(Current.Game);
                 comp.Add(new QualityInsights.Logging.QualityLogEntry
                 {
                     thingDef = thing.def?.defName ?? "Unknown",
@@ -220,6 +255,9 @@ namespace QualityInsights.Patching
                     productionSpecialist = QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker),
                     gameTicks = Find.TickManager.TicksGame
                 });
+                _currentPawn = null;
+                _currentSkill = null;
+                _forcedQuality = null;
             }
             catch { /* never break gameplay */ }
         }

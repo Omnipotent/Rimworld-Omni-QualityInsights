@@ -1,0 +1,15 @@
+<Defs>
+  <KeyBindingCategoryDef>
+    <defName>QualityInsights_Category</defName>
+    <label>Quality Insights</label>
+    <!-- removed checkKeyConflicts; not a valid field -->
+  </KeyBindingCategoryDef>
+
+  <KeyBindingDef>
+    <defName>QualityInsights_ToggleLog</defName>
+    <label>Open Quality log</label>
+    <category>QualityInsights_Category</category>
+    <!-- leave unbound by default; omit defaultKeyCodeA/B -->
+    <!-- e.g., to bind: <defaultKeyCodeA>Semicolon</defaultKeyCodeA> -->
+  </KeyBindingDef>
+</Defs>

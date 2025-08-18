@@ -7,6 +7,6 @@
     <order>9950</order>
     <tabWindowClass>QualityInsights.UI.MainTabWindow_QualityLog</tabWindowClass>
     <buttonVisible>true</buttonVisible>
-    <hotKey>MainTab_ToggleWorld</hotKey>
+    <!-- <hotKeyDef>QualityInsights_ToggleLog</hotKeyDef> -->
   </MainButtonDef>
 </Defs>
