@@ -21,6 +21,8 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static QualityCategory? _forcedQuality;
 
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
+        private static readonly Dictionary<int, (int tick, QualityCategory q)> _logGuard
+            = new Dictionary<int, (int, QualityCategory)>();
 
 
         private const bool DebugLogs = true; // set to false when you're done debugging
@@ -89,12 +91,19 @@ namespace QualityInsights.Patching
             Log.Message("[QualityInsights] Patches applied.");
         }
 
-        public static void MakeRecipeProducts_Prefix(Pawn worker)
+        public static void MakeRecipeProducts_Prefix([HarmonyArgument(0)] RecipeDef recipeDef,
+                                                    [HarmonyArgument(1)] Pawn worker)
         {
             _currentWorkerFromRecipe = worker;
             _currentPawn = worker;
-            if (DebugLogs) Log.Message($"[QI] MakeRecipeProducts_Prefix: worker={P(worker)}");
+
+            // Use the recipe’s declared workSkill when available
+            _currentSkill = ResolveSkillForRecipeOrProduct(recipeDef);
+
+            if (DebugLogs)
+                Log.Message($"[QI] MakeRecipeProducts_Prefix: worker={P(worker)} skill={S(_currentSkill)} recipe={recipeDef?.defName}");
         }
+
 
         // Gizmo injection on work tables
         public static void AfterGetGizmos(Building __instance, ref IEnumerable<Gizmo> __result)
@@ -137,11 +146,10 @@ namespace QualityInsights.Patching
             catch { /* never break gameplay */ }
         }
 
-
-
         // Cheat short-circuit before vanilla roll
         public static bool GenerateQuality_Prefix(Pawn pawn, SkillDef relevantSkill, ref QualityCategory __result)
         {
+            _currentSkill = null; // ensure we never carry a stale skill into this roll
             _currentPawn = pawn;
             _currentSkill = relevantSkill;
 
@@ -160,9 +168,8 @@ namespace QualityInsights.Patching
                 return false;
             }
 
-            return true;                              // let vanilla compute
+            return true; // let vanilla compute
         }
-
 
         private static QualityCategory? TryComputeCheatOverride(Pawn pawn, SkillDef skill)
         {
@@ -193,6 +200,28 @@ namespace QualityInsights.Patching
             return thing?.def?.IsBuildingArtificial == true ? SkillDefOf.Construction : SkillDefOf.Crafting;
         }
 
+        private static SkillDef ResolveSkillForRecipeOrProduct(RecipeDef recipe)
+        {
+            // 1) Primary: modders should set this; works for vanilla & most mods
+            if (recipe?.workSkill != null) return recipe.workSkill;
+
+            // 2) If any product is an art piece, treat as Artistic
+            try
+            {
+                if (recipe?.products != null && recipe.products.Any(p => p?.thingDef?.HasComp(typeof(CompArt)) == true))
+                    return SkillDefOf.Artistic;
+            }
+            catch { /* ignore */ }
+
+            // 3) Soft fallback heuristics (covers odd mods with no workSkill set)
+            var label = recipe?.label ?? recipe?.defName ?? string.Empty;
+            var l = label.ToLowerInvariant();
+            if (l.Contains("sculpt") || l.Contains("art")) return SkillDefOf.Artistic;
+            if (l.Contains("build")  || l.Contains("construct")) return SkillDefOf.Construction;
+
+            // 4) Last resort: Crafting (covers weapons, apparel, guns, etc.)
+            return SkillDefOf.Crafting;
+        }
 
         // Finalization: ensure cheat tier, then log with best-effort pawn resolution
         public static void AfterSetQuality(CompQuality __instance, QualityCategory q)
@@ -238,6 +267,27 @@ namespace QualityInsights.Patching
                 catch { /* keep gameplay safe */ }
             }
 
+            // --- duplicate suppression ---
+            int now = Find.TickManager.TicksGame;
+            int id = thing.thingIDNumber;
+
+            if (_logGuard.TryGetValue(id, out var g) && g.q == q && now - g.tick < 120)
+            {
+                if (DebugLogs)
+                    Log.Message($"[QI] Suppressed duplicate log for {thing.LabelCap} (q={q}) within {now - g.tick} ticks.");
+                goto ClearAndReturn;  // jump to the cleanup at the end of AfterSetQuality
+            }
+            _logGuard[id] = (now, q);
+
+            // Optional light pruning to avoid unbounded growth.
+            if ((now % 5000) == 0 && _logGuard.Count > 512)
+            {
+                // drop records older than ~10000 ticks (~2.8 in-game hours)
+                var cutoff = now - 10000;
+                foreach (var key in _logGuard.Where(kv => kv.Value.tick < cutoff).Select(kv => kv.Key).ToList())
+                    _logGuard.Remove(key);
+            }
+
             if (DebugLogs)
                 Log.Message($"[QI] SetQuality: thing={thing.LabelCap} result={q} worker={P(worker)} skill={S(skill)}");
 
@@ -263,7 +313,8 @@ namespace QualityInsights.Patching
                 catch { /* never break gameplay */ }
             }
 
-            // Clear after consumption
+        // Clear after consumption
+        ClearAndReturn:
             _currentPawn = null;
             _currentSkill = null;
             _forcedQuality = null;
