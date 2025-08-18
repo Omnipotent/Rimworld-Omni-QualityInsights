@@ -29,6 +29,10 @@ namespace QualityInsights.Patching
 
         private static string P(Pawn? p) => p != null ? p.LabelShortCap : "null";
         private static string S(SkillDef? s) => s != null ? (s.skillLabel ?? s.label ?? s.defName) : "null";
+        // Tracks construction in-flight between CompleteConstruction prefix/postfix
+        private struct BuildCtx { public Map map; public IntVec3 cell; public ThingDef builtDef; public Pawn worker; }
+        private static readonly Dictionary<int, BuildCtx> _buildCtx = new();
+
 
         static QualityPatches()
         {
@@ -83,6 +87,29 @@ namespace QualityInsights.Patching
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterPostProcessProduct)));
             }
 
+            // 2.6) Bind construction products to the worker (so we can log/enforce later)
+            var complete = typeof(Frame)
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(m =>
+                {
+                    if (m.Name != "CompleteConstruction") return false;
+                    var ps = m.GetParameters();
+                    // allow any signature whose first param is Pawn
+                    return ps.Length >= 1 && ps[0].ParameterType == typeof(Pawn);
+                });
+
+            if (complete != null)
+            {
+                harmony.Patch(
+                    complete,
+                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Prefix)),
+                    postfix: new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Postfix)));
+            }
+            else
+            {
+                Log.Warning("[QualityInsights] Could not find Frame.CompleteConstruction(Pawn). Construction logs may miss the worker.");
+            }
+
             // 3) Add the Live Odds gizmo to work tables
             var getGizmos = AccessTools.Method(typeof(Building), nameof(Building.GetGizmos));
             if (getGizmos != null)
@@ -103,7 +130,6 @@ namespace QualityInsights.Patching
             if (DebugLogs)
                 Log.Message($"[QI] MakeRecipeProducts_Prefix: worker={P(worker)} skill={S(_currentSkill)} recipe={recipeDef?.defName}");
         }
-
 
         // Gizmo injection on work tables
         public static void AfterGetGizmos(Building __instance, ref IEnumerable<Gizmo> __result)
@@ -145,6 +171,65 @@ namespace QualityInsights.Patching
             }
             catch { /* never break gameplay */ }
         }
+
+        public static void CompleteConstruction_Prefix(Frame __instance, Pawn worker)
+        {
+            try
+            {
+                // >>> seed the roll context so AfterSetQuality sees Construction <<<
+                _currentPawn  = worker;                  // who is building right now
+                _currentSkill = SkillDefOf.Construction; // construction always uses Construction
+
+                // What will this frame become?
+                var built = __instance?.def?.entityDefToBuild as ThingDef;
+                if (built == null || worker == null) return;
+
+                _buildCtx[__instance.thingIDNumber] = new BuildCtx
+                {
+                    map      = __instance.Map,
+                    cell     = __instance.Position,
+                    builtDef = built,
+                    worker   = worker
+                };
+
+                if (DebugLogs)
+                    Log.Message($"[QI] Construction prefix: will build {built.defName} at {__instance.Position} by {P(worker)}");
+            }
+            catch { /* keep gameplay safe */ }
+        }
+
+        public static void CompleteConstruction_Postfix(Frame __instance)
+        {
+            try
+            {
+                if (!_buildCtx.TryGetValue(__instance.thingIDNumber, out var ctx)) return;
+                _buildCtx.Remove(__instance.thingIDNumber);
+
+                // The frame is gone now; find the new building at the same cell
+                var list = ctx.cell.GetThingList(ctx.map);
+                Thing builtThing = null;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var t = list[i];
+                    if (t?.def == null) continue;
+                    if (t.def == ctx.builtDef || t.def.defName == ctx.builtDef.defName)
+                    {
+                        builtThing = t;
+                        break;
+                    }
+                }
+                if (builtThing == null) return;
+
+                // Cache for AfterSetQuality
+                try { _productToWorker.Remove(builtThing); } catch { /* ignore */ }
+                _productToWorker.Add(builtThing, ctx.worker);
+
+                if (DebugLogs)
+                    Log.Message($"[QI] Construction bound: {P(ctx.worker)} -> {builtThing.LabelCap}");
+            }
+            catch { /* keep gameplay safe */ }
+        }
+
 
         // Cheat short-circuit before vanilla roll
         public static bool GenerateQuality_Prefix(Pawn pawn, SkillDef relevantSkill, ref QualityCategory __result)
@@ -188,16 +273,20 @@ namespace QualityInsights.Patching
             return null;
         }
 
+        // Replace your current ResolveSkillForThing with this one
         private static SkillDef ResolveSkillForThing(Thing thing, SkillDef? fromRoll)
         {
-            // Prefer what we captured in the roll (most accurate)
+            // Prefer what was captured in the roll (most accurate)
             if (fromRoll != null) return fromRoll;
 
-            // If the product has CompArt, it's an art piece => Artistic
+            // Buildings are always Construction, even if they also have CompArt
+            if (thing?.def?.IsBuildingArtificial == true) return SkillDefOf.Construction;
+
+            // Non-buildings that have CompArt are Artistic (e.g., sculptures)
             if (thing?.TryGetComp<CompArt>() != null) return SkillDefOf.Artistic;
 
-            // True buildings use Construction; non-buildings (weapons, apparel, guns, etc.) use Crafting
-            return thing?.def?.IsBuildingArtificial == true ? SkillDefOf.Construction : SkillDefOf.Crafting;
+            // Everything else (weapons, apparel, guns, etc.) is Crafting
+            return SkillDefOf.Crafting;
         }
 
         private static SkillDef ResolveSkillForRecipeOrProduct(RecipeDef recipe)
