@@ -6,14 +6,17 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 
 * **Quality Log**
 
-  * New top-bar button opens a log of all quality roll outcomes.
+  * New top-bar button opens a searchable, filterable log of all quality roll outcomes.
   * Tracks who created the item, with what skill, and the final quality.
+  * Search bar + dropdown filters for **quality tier** and **skill**.
   * Duplicate suppression ensures one entry per item, even if multiple late SetQuality calls occur.
+  * Supports CSV export for external analysis.
+  * Displays a summary distribution of all logged qualities.
 
 * **Live Quality Odds Gizmo**
 
   * Appears on any work table with quality-producing recipes.
-  * Lets you pick a recipe and pawn to see Excellent/Masterwork/Legendary chances.
+  * Lets you pick a recipe and pawn to see full odds across **all quality tiers** (Awful → Legendary).
   * Resolves the correct skill dynamically:
 
     * Construction for buildings/furniture.
@@ -25,6 +28,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
     * **Inspired Creativity** guarantees Masterwork (Legendary if any chance > 0).
     * **Production Specialist** (Ideology) shifts results +1 tier.
   * Probabilities sampled from the **actual RimWorld quality roll function**, so they stay accurate with mods.
+  * Optimized caching ensures recalculations only happen when inputs change, minimizing lag while dragging the window.
 
 * **Construction Path Support**
 
@@ -61,7 +65,7 @@ Drop the entire mod folder into `RimWorld/Mods/QualityInsights`. Ensure `Assembl
 ## Use
 
 * A new **Quality log** main button appears in the top bar.
-* Select any **work table** to see a **Quality odds** gizmo; click it to choose a recipe and pawn to view Excellent/Masterwork/Legendary estimates.
+* Select any **work table** to see a **Quality odds** gizmo; click it to choose a recipe and pawn to view odds for all qualities (Awful through Legendary).
 * In **Mod Settings**, you can enable the dev cheat and adjust the probability threshold and sample count.
 
 ## Notes
@@ -69,3 +73,4 @@ Drop the entire mod folder into `RimWorld/Mods/QualityInsights`. Ensure `Assembl
 * Odds are estimated by sampling the **actual game method** that rolls quality, so they automatically stay correct with most quality-altering mods.
 * Legendary is only allowed if the pawn has Inspired Creativity or the Production Specialist role; the cheat respects this rule.
 * Handles both crafting and construction quality reliably, with proper pawn/skill attribution.
+* Performance optimized: results cache between input changes to avoid laggy UI interactions.
