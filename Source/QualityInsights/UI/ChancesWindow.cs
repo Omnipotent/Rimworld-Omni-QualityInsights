@@ -12,36 +12,195 @@ namespace QualityInsights.UI
     public class ChancesWindow : Window
     {
         private readonly Building_WorkTable table;
+
+        // Current selections
         private RecipeDef? selectedRecipe;
         private Pawn? selectedPawn;
+
+        // Cached for performance
+        private List<RecipeDef>? cachedRecipes;                  // quality-capable recipes for this table
+        private List<Pawn>? cachedEligiblePawns;                 // pawns eligible for the selected recipe's skill
+        private SkillDef? cachedSkill;                           // resolved skill for current recipe/product
+        private ThingDef? cachedProductDef;                      // first product def (if any)
+        private Dictionary<QualityCategory, float>? cachedChances;
+        private RecipeDef? cacheKeyRecipe;
+        private Pawn? cacheKeyPawn;
+
         private Vector2 scroll;
+
+        // ===== Helpers ======================================================
 
         private static IEnumerable<Pawn> ColonyPawnsOnMap(Map map) =>
             map?.mapPawns?.FreeColonistsSpawned ?? Enumerable.Empty<Pawn>();
 
-        private static SkillDef ResolveSkill(RecipeDef recipe)
+        private static SkillDef ResolveSkill(RecipeDef recipe, ThingDef? productDef)
         {
-            // RimWorld usually sets workSkill; fall back to Artistic for sculptures,
-            // Crafting otherwise
             if (recipe?.workSkill != null) return recipe.workSkill;
-            if (recipe?.label?.ToLowerInvariant().Contains("sculpt") == true) return SkillDefOf.Artistic;
+
+            // Buildings/furniture use Construction
+            if (productDef != null && productDef.IsBuildingArtificial)
+                return SkillDefOf.Construction;
+
+            // Common vanilla/mod naming (fallback)
+            var lbl = recipe?.label ?? recipe?.defName ?? string.Empty;
+            var l = lbl.ToLowerInvariant();
+            if (l.Contains("sculpt") || l.Contains("art")) return SkillDefOf.Artistic;
+
+            // Default: Crafting
             return SkillDefOf.Crafting;
         }
 
+        private static bool ThingDefHasCompQuality(ThingDef def)
+        {
+            if (def == null || def.comps == null) return false;
+            for (int i = 0; i < def.comps.Count; i++)
+                if (def.comps[i]?.compClass == typeof(CompQuality))
+                    return true;
+            return false;
+        }
+
+        private List<RecipeDef> GetRecipesOnce()
+        {
+            if (cachedRecipes != null) return cachedRecipes;
+
+            var list = new List<RecipeDef>();
+            var all = table?.def?.AllRecipes;
+            if (all != null)
+            {
+                foreach (var r in all)
+                {
+                    var prods = r?.products;
+                    if (prods == null) continue;
+                    for (int i = 0; i < prods.Count; i++)
+                    {
+                        var td = prods[i]?.thingDef;
+                        if (ThingDefHasCompQuality(td))
+                        {
+                            list.Add(r);
+                            break;
+                        }
+                    }
+                }
+            }
+            cachedRecipes = list;
+            return cachedRecipes;
+        }
+
+        private void OnRecipeChanged(RecipeDef? newRecipe)
+        {
+            if (newRecipe == selectedRecipe) return;
+
+            selectedRecipe = newRecipe;
+
+            // Re-resolve product & skill for the new recipe
+            cachedProductDef = selectedRecipe?.products?.FirstOrDefault()?.thingDef;
+            cachedSkill = ResolveSkill(selectedRecipe, cachedProductDef);
+
+            // Rebuild eligible pawns list (only when recipe/skill changes)
+            RebuildEligiblePawns();
+
+            // Reset selected pawn to "best" for this skill if current is not eligible
+            if (selectedPawn == null || !IsPawnEligible(selectedPawn, cachedSkill))
+                selectedPawn = cachedEligiblePawns?.FirstOrDefault() ?? ColonyPawnsOnMap(table.Map).FirstOrDefault();
+
+            // Invalidate chance cache
+            cachedChances = null;
+            cacheKeyPawn = null;
+            cacheKeyRecipe = null;
+        }
+
+        private void OnPawnChanged(Pawn? newPawn)
+        {
+            if (newPawn == selectedPawn) return;
+            selectedPawn = newPawn;
+            // Invalidate chance cache
+            cachedChances = null;
+            cacheKeyPawn = null;
+            cacheKeyRecipe = null;
+        }
+
+        private bool IsPawnEligible(Pawn? p, SkillDef skill)
+        {
+            if (p == null || skill == null) return false;
+            var rec = p.skills?.GetSkill(skill);
+            return rec != null && !rec.TotallyDisabled;
+        }
+
+        private void RebuildEligiblePawns()
+        {
+            cachedEligiblePawns = new List<Pawn>();
+            var skill = cachedSkill;
+            if (skill == null) return;
+
+            foreach (var p in ColonyPawnsOnMap(table.Map))
+            {
+                var rec = p.skills?.GetSkill(skill);
+                if (rec != null && !rec.TotallyDisabled)
+                    cachedEligiblePawns.Add(p);
+            }
+
+            // Highest skill first
+            cachedEligiblePawns.Sort((a, b) =>
+                (b.skills?.GetSkill(skill)?.Level ?? -1).CompareTo(a.skills?.GetSkill(skill)?.Level ?? -1));
+        }
+
+        private Dictionary<QualityCategory, float> GetChances(Pawn pawn, SkillDef skill, ThingDef? product)
+        {
+            // Return cached if inputs unchanged
+            if (cachedChances != null && cacheKeyPawn == pawn && cacheKeyRecipe == selectedRecipe)
+                return cachedChances;
+
+            var samples = QualityInsightsMod.Settings.estimationSamples;
+            samples = Math.Max(100, samples);
+
+            // Optional deterministic seed for stability across frames (not strictly necessary now)
+            var seed = Gen.HashCombineInt(pawn.thingIDNumber,
+                        Gen.HashCombineInt(selectedRecipe?.shortHash ?? 0, samples));
+
+            Dictionary<QualityCategory, float> raw;
+            Rand.PushState(seed);
+            try
+            {
+                raw = product != null
+                    ? QualityEstimator.EstimateChances(pawn, skill, product, samples)
+                    : QualityEstimator.EstimateChances(pawn, skill, samples);
+            }
+            finally { Rand.PopState(); }
+
+            // No per-frame allocations after this: keep normalized in 0..1 for display
+            cachedChances = raw;
+            cacheKeyPawn = pawn;
+            cacheKeyRecipe = selectedRecipe;
+            return cachedChances!;
+        }
+
+        // ===== Window plumbing ==============================================
 
         public override Vector2 InitialSize => new(520f, 420f);
 
         public ChancesWindow(Building_WorkTable table)
         {
-            this.doCloseX = true;
-            this.absorbInputAroundWindow = false;  // don’t block clicks to map/hotkeys
-            this.forcePause = false;               // don’t pause the game
-            // this.forcePause = true;                // pause the game
-            this.closeOnClickedOutside = true;     // optional QoL
-
-            this.draggable = true;                 // optional QoL
             this.table = table;
-            selectedRecipe = table.BillStack?.Bills?.OfType<Bill_Production>()?.FirstOrDefault()?.recipe;
+
+            doCloseX = true;
+            absorbInputAroundWindow = false;  // allow game interaction
+            forcePause = false;
+            closeOnClickedOutside = true;
+            draggable = true;
+
+            // Default recipe: first quality-capable recipe on this table
+            var recipes = GetRecipesOnce();
+            selectedRecipe = table.BillStack?.Bills?.OfType<Bill_Production>()?.FirstOrDefault()?.recipe
+                             ?? recipes.FirstOrDefault();
+
+            // Initialize derived caches from the starting recipe
+            cachedProductDef = selectedRecipe?.products?.FirstOrDefault()?.thingDef;
+            cachedSkill = ResolveSkill(selectedRecipe, cachedProductDef);
+            RebuildEligiblePawns();
+
+            // Default pawn: best eligible
+            selectedPawn = cachedEligiblePawns?.FirstOrDefault()
+                           ?? ColonyPawnsOnMap(table.Map).FirstOrDefault();
         }
 
         public override void DoWindowContents(Rect inRect)
@@ -50,66 +209,55 @@ namespace QualityInsights.UI
             ls.Begin(inRect);
 
             // -------------------------------
-            // Recipe picker
+            // Recipe picker (cached list)
             // -------------------------------
-            var recipes = table.def.AllRecipes
-                .Where(r =>
-                    r.products != null &&
-                    r.products.Any(p =>
-                    {
-                        var td = p.thingDef;
-                        // true if this product’s ThingDef has a CompQuality
-                        return td != null && td.comps != null &&
-                            td.comps.Any(cp => cp?.compClass == typeof(CompQuality));
-                    }))
-                .ToList();
-
-
-            if (selectedRecipe == null && recipes.Count > 0)
-                selectedRecipe = recipes[0];
-
+            var recipes = GetRecipesOnce();
             if (recipes.Count == 0)
             {
-                ls.Label("No recipes on this table.");
+                ls.Label("No quality-capable recipes on this table.");
                 ls.End(); return;
             }
 
-            if (ls.ButtonTextLabeled("Recipe", (selectedRecipe?.LabelCap.ToString()) ?? "(select)"))
+            var recipeLabel = selectedRecipe?.LabelCap.ToString() ?? "(select)";
+            if (ls.ButtonTextLabeled("Recipe", recipeLabel))
             {
-                var fl = new FloatMenu(recipes.Select(r =>
+                var opts = new List<FloatMenuOption>(recipes.Count);
+                foreach (var r in recipes)
                 {
-                    var label = r.LabelCap.ToString();
-                    return new FloatMenuOption(label, () => selectedRecipe = r);
-                }).ToList());
-                Find.WindowStack.Add(fl); // <— actually open the menu
+                    var local = r; // capture
+                    opts.Add(new FloatMenuOption(r.LabelCap.ToString(), () => OnRecipeChanged(local)));
+                }
+                Find.WindowStack.Add(new FloatMenu(opts));
             }
 
             // -------------------------------
-            // Pawn picker (eligible for the recipe's skill)
+            // Pawn picker (recomputed only on recipe change)
             // -------------------------------
-            var skill = ResolveSkill(selectedRecipe);
-            var pawnsOnMap = ColonyPawnsOnMap(table.Map).ToList();
-            var eligible = pawnsOnMap
-                .Where(p => p.skills?.GetSkill(skill) != null && !p.skills.GetSkill(skill).TotallyDisabled)
-                .OrderByDescending(p => p.skills.GetSkill(skill).Level)
-                .ToList();
+            var skill = cachedSkill ?? SkillDefOf.Crafting; // ultra-safe fallback
+            if (selectedPawn == null || !IsPawnEligible(selectedPawn, skill))
+                selectedPawn = cachedEligiblePawns?.FirstOrDefault() ?? ColonyPawnsOnMap(table.Map).FirstOrDefault();
 
-            if (selectedPawn == null)
-                selectedPawn = eligible.FirstOrDefault() ?? pawnsOnMap.FirstOrDefault();
-
-            if (ls.ButtonTextLabeled("Pawn", selectedPawn?.LabelShortCap ?? "(best)"))
+            var pawnLabel = selectedPawn?.LabelShortCap ?? "(best)";
+            if (ls.ButtonTextLabeled("Pawn", pawnLabel))
             {
                 var options = new List<FloatMenuOption>();
                 options.Add(new FloatMenuOption("(best)", () =>
                 {
-                    selectedPawn = eligible.FirstOrDefault() ?? pawnsOnMap.FirstOrDefault();
+                    OnPawnChanged(cachedEligiblePawns?.FirstOrDefault() ?? selectedPawn);
                 }));
-                foreach (var p in eligible)
-                    options.Add(new FloatMenuOption(p.LabelShortCap, () => selectedPawn = p));
+
+                if (cachedEligiblePawns != null)
+                {
+                    foreach (var p in cachedEligiblePawns)
+                    {
+                        var local = p; // capture
+                        options.Add(new FloatMenuOption(local.LabelShortCap, () => OnPawnChanged(local)));
+                    }
+                }
                 Find.WindowStack.Add(new FloatMenu(options));
             }
 
-            var pawn = selectedPawn ?? eligible.FirstOrDefault() ?? pawnsOnMap.FirstOrDefault();
+            var pawn = selectedPawn;
             if (pawn == null)
             {
                 ls.GapLine();
@@ -120,54 +268,33 @@ namespace QualityInsights.UI
             ls.GapLine();
 
             // -------------------------------
-            // Chance calculation
+            // Chance calculation (cached)
             // -------------------------------
-            var productDef = selectedRecipe?.products?.FirstOrDefault()?.thingDef;
+            var chances = GetChances(pawn, skill, cachedProductDef);
 
-            Dictionary<QualityCategory,float> chances;
-            var seed = Gen.HashCombineInt(pawn.thingIDNumber,
-                        Gen.HashCombineInt(selectedRecipe?.shortHash ?? 0,
-                        QualityInsightsMod.Settings.estimationSamples));
-
-            Rand.PushState(seed);
-            try
-            {
-                if (productDef != null)
-                    chances = QualityEstimator.EstimateChances(pawn, skill, productDef, QualityInsightsMod.Settings.estimationSamples);
-                else
-                    chances = QualityEstimator.EstimateChances(pawn, skill, QualityInsightsMod.Settings.estimationSamples);
-            }
-            finally { Rand.PopState(); }
-
-            DrawPercentRow(ls, "Excellent", chances.TryGetValue(QualityCategory.Excellent, out var ex) ? ex : 0f);
-            DrawPercentRow(ls, "Masterwork", chances.TryGetValue(QualityCategory.Masterwork, out var mw) ? mw : 0f);
-            DrawPercentRow(ls, "Legendary", chances.TryGetValue(QualityCategory.Legendary, out var lg) ? lg : 0f);
+            DrawPercentRow(ls, "Excellent", GetPct(chances, QualityCategory.Excellent));
+            DrawPercentRow(ls, "Masterwork", GetPct(chances, QualityCategory.Masterwork));
+            DrawPercentRow(ls, "Legendary", GetPct(chances, QualityCategory.Legendary));
 
             ls.GapLine();
-            ls.Label($"Pawn: {pawn.LabelShortCap}  |  Skill: {(skill?.skillLabel ?? skill?.label ?? skill?.defName).CapitalizeFirst()} {pawn.skills.GetSkill(skill).Level}");
-            if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity) ls.Label("Inspiration: Inspired Creativity (+2 quality tiers)");
-            if (QualityRules.IsProductionSpecialist(pawn)) ls.Label("Role: Production Specialist (+1 tier)");
-
-            // after chances are computed and before ls.End()
-            bool legendaryPossible = chances.TryGetValue(QualityCategory.Legendary, out var pLegend) && pLegend > 0f;
-            if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity && legendaryPossible)
-                ls.Label("Note: Legendary is guaranteed while Inspired Creativity is active for this recipe/pawn.");
+            var level = pawn.skills?.GetSkill(skill)?.Level ?? 0;
+            ls.Label($"Pawn: {pawn.LabelShortCap}  |  Skill: {(skill?.skillLabel ?? skill?.label ?? skill?.defName).CapitalizeFirst()} {level}");
+            if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity)
+                ls.Label("Inspiration: Inspired Creativity (+2 tiers; Legendary guaranteed if any chance > 0)");
+            if (QualityRules.IsProductionSpecialist(pawn))
+                ls.Label("Role: Production Specialist (+1 tier)");
 
             ls.End();
         }
 
-        private static void DrawPercentRow(Listing_Standard ls, string label, float p)
-        {
-            var r = ls.GetRect(24f);
-            Widgets.Label(r.LeftPart(0.5f), label);
-            Widgets.Label(r.RightPart(0.5f), p.ToString("P2"));
-        }
+        private static float GetPct(Dictionary<QualityCategory, float> chances, QualityCategory qc)
+            => chances.TryGetValue(qc, out var p) ? p : 0f;
 
-        private static void DrawRow(Listing_Standard ls, string label, float p)
+        private static void DrawPercentRow(Listing_Standard ls, string label, float p01)
         {
             var r = ls.GetRect(24f);
             Widgets.Label(r.LeftPart(0.5f), label);
-            Widgets.Label(r.RightPart(0.5f), p.ToString("P2"));
+            Widgets.Label(r.RightPart(0.5f), p01.ToString("P2"));
         }
     }
 }
