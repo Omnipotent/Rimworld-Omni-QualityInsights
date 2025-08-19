@@ -156,26 +156,39 @@ namespace QualityInsights.UI
 
         private void DrawTable(Rect outRect, List<QualityLogEntry> list)
         {
-            list = SortForTable(list);
-
             // 1) Sticky header (not inside scroll view)
-            float x = 0f;
+            float hx = 0f;
             for (int i = 0; i < ColHeaders.Length; i++)
             {
                 float w = outRect.width * ColWidths[i];
-                var hr = new Rect(outRect.x + x, outRect.y, w, ColHeaderH);
+                var hr = new Rect(outRect.x + hx, outRect.y, w, ColHeaderH);
+
+                // draw header text + caret
                 if (Mouse.IsOver(hr)) Widgets.DrawHighlight(hr);
-                var label = ColHeaders[i] + (s_sortCol == i ? (s_sortAsc ? " ▲" : " ▼") : string.Empty);
-                if (Widgets.ButtonText(hr, label, false, false, false))
+                string label = ColHeaders[i] + (s_sortCol == i ? (s_sortAsc ? " ▲" : " ▼") : string.Empty);
+                var oldAnchor = Text.Anchor;
+                Text.Anchor = TextAnchor.MiddleLeft;
+                Widgets.Label(hr.ContractedBy(6f, 0f), label);
+                Text.Anchor = oldAnchor;
+
+                // click area via invisible button (more reliable than ButtonText here)
+                if (Widgets.ButtonInvisible(hr, true))
                 {
-                    if (s_sortCol == i) s_sortAsc = !s_sortAsc; else { s_sortCol = i; s_sortAsc = (i == 0); }
+                    if (s_sortCol == i) s_sortAsc = !s_sortAsc;
+                    else { s_sortCol = i; s_sortAsc = (i == 0); }
+                    // consume & refresh immediately
+                    Event.current.Use();
                 }
-                x += w;
+
+                hx += w;
             }
             Widgets.DrawLineHorizontal(outRect.x, outRect.y + ColHeaderH - 1f, outRect.width);
 
-            // 2) Scroll area with rows
-            var rowsOut = new Rect(outRect.x, outRect.y + ColHeaderH, outRect.width, outRect.height - ColHeaderH);
+            // 2) Sort (after potential click above, so it takes effect this frame)
+            list = SortForTable(list);
+
+            // 3) Scroll area with rows
+            var rowsOut  = new Rect(outRect.x, outRect.y + ColHeaderH, outRect.width, outRect.height - ColHeaderH);
             var viewRect = new Rect(0, 0, rowsOut.width - 16f, list.Count * RowH + 8f);
             Widgets.BeginScrollView(rowsOut, ref scroll, viewRect);
 
@@ -183,30 +196,40 @@ namespace QualityInsights.UI
             int idx = 0;
             foreach (var e in list)
             {
-                x = 0f;
+                float x = 0f;
                 var row = new Rect(0, y, viewRect.width, RowH);
                 if ((idx & 1) == 1) DrawZebra(row);     // zebra striping
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
+                // Time
                 DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[0], RowH), e.TimeAgoString); x += viewRect.width * ColWidths[0];
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[1], RowH), e.pawnName ?? "Unknown"); x += viewRect.width * ColWidths[1];
+
+                // Pawn (with portrait if found)
+                DrawPawnWithIconOneLine(new Rect(x, y, viewRect.width * ColWidths[1], RowH), e.pawnName); x += viewRect.width * ColWidths[1];
+
+                // Skill
                 DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[2], RowH), e.skillDef ?? "Unknown"); x += viewRect.width * ColWidths[2];
 
-                // right-align numeric level
+                // Lvl (right aligned)
                 DrawCellRightOneLine(new Rect(x, y, viewRect.width * ColWidths[3], RowH), e.skillLevelAtFinish.ToString());
                 x += viewRect.width * ColWidths[3];
 
+                // Quality (colored)
                 var qRect = new Rect(x, y, viewRect.width * ColWidths[4], RowH);
                 DrawQualityOneLine(qRect, e.quality);
                 x += viewRect.width * ColWidths[4];
 
+                // Item (def icon)
                 var itemRect = new Rect(x, y, viewRect.width * ColWidths[5], RowH);
                 DrawThingWithIconOneLine(itemRect, e.thingDef);
                 x += viewRect.width * ColWidths[5];
 
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[6], RowH), e.stuffDef ?? string.Empty);
+                // Stuff (def icon if available)
+                var stuffRect = new Rect(x, y, viewRect.width * ColWidths[6], RowH);
+                DrawDefWithIconOneLine(stuffRect, e.stuffDef);
                 x += viewRect.width * ColWidths[6];
 
+                // Tags
                 string tags =
                     (e.inspiredCreativity ? "Inspired " : string.Empty) +
                     (e.productionSpecialist ? "ProdSpec" : string.Empty);
@@ -221,9 +244,10 @@ namespace QualityInsights.UI
 
         private List<QualityLogEntry> SortForTable(List<QualityLogEntry> list)
         {
+            // stable, single-column sort with toggleable direction
             IOrderedEnumerable<QualityLogEntry> ordered = s_sortCol switch
             {
-                0 => list.OrderBy(e => e.gameTicks),
+                0 => list.OrderBy(e => e.gameTicks), // Time asc = older first
                 1 => list.OrderBy(e => e.pawnName),
                 2 => list.OrderBy(e => e.skillDef),
                 3 => list.OrderBy(e => e.skillLevelAtFinish),
@@ -307,6 +331,81 @@ namespace QualityInsights.UI
             DrawCellOneLine(right, thingDefName ?? string.Empty);
             if (!string.IsNullOrEmpty(thingDefName))
                 TooltipHandler.TipRegion(r, thingDefName);
+        }
+
+        private static void DrawDefWithIconOneLine(Rect r, string defNameOrNull)
+        {
+            string name = defNameOrNull ?? string.Empty;
+            if (string.IsNullOrEmpty(name))
+            {
+                DrawCellOneLine(r, string.Empty);
+                return;
+            }
+
+            r = r.ContractedBy(2f, 2f);
+            var left  = r.LeftPartPixels(r.height);
+            var right = new Rect(r.x + left.width + 4f, r.y, r.width - left.width - 4f, r.height);
+
+            var def = DefDatabase<ThingDef>.GetNamedSilentFail(name);
+            if (def?.uiIcon != null)
+            {
+                var old = GUI.color;
+                GUI.color = def.uiIconColor;
+                GUI.DrawTexture(left, def.uiIcon, ScaleMode.ScaleToFit);
+                GUI.color = old;
+            }
+
+            DrawCellOneLine(right, name);
+            TooltipHandler.TipRegion(r, name);
+        }
+
+        private static void DrawPawnWithIconOneLine(Rect r, string pawnNameOrNull)
+        {
+            string label = pawnNameOrNull ?? "Unknown";
+            r = r.ContractedBy(2f, 2f);
+            var left  = r.LeftPartPixels(r.height); // portrait square
+            var right = new Rect(r.x + left.width + 4f, r.y, r.width - left.width - 4f, r.height);
+
+            Pawn p = TryFindPawnByShortName(label);
+            if (p != null)
+            {
+                // cached portrait
+                var tex = PortraitsCache.Get(p, new Vector2(left.width, left.height), Rot4.South, default, 1.0f);
+                GUI.DrawTexture(left, tex);
+            }
+            else
+            {
+                // fallback: skill/pawn silhouette from Thing icon set would be ideal; else small white box
+                GUI.DrawTexture(left, BaseContent.GreyTex);
+            }
+
+            DrawCellOneLine(right, label);
+            TooltipHandler.TipRegion(r, label);
+        }
+
+        private static Pawn TryFindPawnByShortName(string labelShort)
+        {
+            if (string.IsNullOrEmpty(labelShort)) return null;
+
+            // Current map first
+            var map = Find.CurrentMap;
+            IEnumerable<Pawn> cands = map?.mapPawns?.AllPawnsSpawned ?? Enumerable.Empty<Pawn>();
+
+            Pawn found = cands.FirstOrDefault(p =>
+                string.Equals(p.LabelShortCap, labelShort, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.LabelShort,    labelShort, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p?.Name?.ToStringShort, labelShort, StringComparison.OrdinalIgnoreCase));
+
+            // If not on map, try world pawns/colonists in caravan etc.
+            if (found == null)
+            {
+                var world = Find.WorldPawns?.AllPawnsAliveOrDead ?? Enumerable.Empty<Pawn>();
+                found = world.FirstOrDefault(p =>
+                    string.Equals(p.LabelShortCap, labelShort, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(p.LabelShort,    labelShort, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(p?.Name?.ToStringShort, labelShort, StringComparison.OrdinalIgnoreCase));
+            }
+            return found;
         }
 
         private static void DrawZebra(Rect r)
