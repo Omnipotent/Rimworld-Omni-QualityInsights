@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using Verse;
+using Verse.Sound;
 using RimWorld;
 using QualityInsights.Prob;
 using QualityInsights.Utils;
+using QualityInsights.Patching;
 
 namespace QualityInsights.UI
 {
@@ -198,11 +201,25 @@ namespace QualityInsights.UI
             var samples = QualityInsightsMod.Settings.estimationSamples;
             samples = Math.Max(100, samples);
 
-            // Optional deterministic seed for stability across frames (not strictly necessary now)
+            // Stable-ish seed so the numbers don't dance each frame
             var seed = Gen.HashCombineInt(pawn.thingIDNumber,
                         Gen.HashCombineInt(selectedRecipe?.shortHash ?? 0, samples));
 
+            // --- SILENT snapshot of inspiration (no messages, no timer touch)
+            var ih = pawn?.mindState?.inspirationHandler;
+            object savedInspirationObj = null;   // RimWorld.Inspiration instance (private)
+            FieldInfo curField = null;
+            if (ih != null)
+            {
+                curField = typeof(InspirationHandler)
+                    .GetField("curInspiration", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (curField != null)
+                    savedInspirationObj = curField.GetValue(ih);
+            }
+
             Dictionary<QualityCategory, float> raw;
+
+            QualityPatches._suppressInspirationSideEffects = true;
             Rand.PushState(seed);
             try
             {
@@ -210,9 +227,12 @@ namespace QualityInsights.UI
                     ? QualityEstimator.EstimateChances(pawn, skill, product, samples)
                     : QualityEstimator.EstimateChances(pawn, skill, samples);
             }
-            finally { Rand.PopState(); }
+            finally
+            {
+                Rand.PopState();
+                QualityPatches._suppressInspirationSideEffects = false;
+            }
 
-            // No per-frame allocations after this: keep normalized in 0..1 for display
             cachedChances = raw;
             cacheKeyPawn = pawn;
             cacheKeyRecipe = selectedRecipe;
@@ -358,6 +378,20 @@ namespace QualityInsights.UI
                 ls.Label("Role: Production Specialist (+1 tier)");
 
             ls.End();
+
+            // --- Resize Grip Overlay ---
+            if (resizeable)
+            {
+                const float gripSize = 16f; // tweak as you like
+                var gripRect = new Rect(inRect.width - gripSize, inRect.height - gripSize, gripSize, gripSize);
+
+                // Draw a faint triangle or diagonal lines so player knows it’s draggable
+                Widgets.DrawLine(gripRect.position, gripRect.position + new Vector2(gripSize, gripSize), Color.gray, 2f);
+
+                // Ensure input here is passed to base resizing
+                if (Mouse.IsOver(gripRect))
+                    MouseoverSounds.DoRegion(gripRect); // optional hover sound/feedback
+            }
         }
 
         private static float GetPct(Dictionary<QualityCategory, float> chances, QualityCategory qc)

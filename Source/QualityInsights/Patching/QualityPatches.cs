@@ -20,6 +20,9 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static SkillDef? _currentSkill;
         [ThreadStatic] private static QualityCategory? _forcedQuality;
         [ThreadStatic] private static List<string>? _currentMats;
+        [ThreadStatic] private static bool? _hadInspirationAtRoll;
+        [ThreadStatic] private static bool? _wasProdSpecAtRoll;
+        [ThreadStatic] internal static bool _suppressInspirationSideEffects;
 
 
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
@@ -40,6 +43,12 @@ namespace QualityInsights.Patching
         static QualityPatches()
         {
             var harmony = new Harmony("omni.qualityinsights");
+
+            PatchAllOverloads(harmony, typeof(InspirationHandler), "EndInspiration",
+                new HarmonyMethod(typeof(QualityPatches), nameof(InspirationGuardPrefix)));
+
+            PatchAllOverloads(harmony, typeof(InspirationHandler), "TryStartInspiration",
+                new HarmonyMethod(typeof(QualityPatches), nameof(InspirationGuardPrefix)));
 
             // 1) Short-circuit quality rolls when cheat applies
             var genQual = AccessTools.Method(
@@ -62,7 +71,6 @@ namespace QualityInsights.Patching
                     prefix: new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Prefix))
                 );
             }
-
 
             // 2) Log final quality (and safety-bump if cheat says higher)
             var setQ = typeof(CompQuality)
@@ -121,6 +129,18 @@ namespace QualityInsights.Patching
             Log.Message("[QualityInsights] Patches applied.");
         }
 
+        private static void PatchAllOverloads(Harmony harmony, Type type, string methodName, HarmonyMethod prefix)
+        {
+            var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                            .Where(m => m.Name == methodName);
+            foreach (var mi in methods) harmony.Patch(mi, prefix: prefix);
+        }
+        public static bool InspirationGuardPrefix()
+        {
+            // When we're sampling, skip vanilla inspiration start/end entirely
+            return !_suppressInspirationSideEffects;  // false => Harmony prevents original method
+        }
+
         public static void MakeRecipeProducts_Prefix(
             [HarmonyArgument(0)] RecipeDef recipeDef,
             [HarmonyArgument(1)] Pawn worker,
@@ -129,6 +149,8 @@ namespace QualityInsights.Patching
             _currentWorkerFromRecipe = worker;
             _currentPawn  = worker;
             _currentSkill = ResolveSkillForRecipeOrProduct(recipeDef);
+            _hadInspirationAtRoll ??= worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
+            _wasProdSpecAtRoll    ??= QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker);
 
             // Collect distinct defNames of used ingredients (steel, component, neutroamine, etc.)
             try
@@ -152,9 +174,9 @@ namespace QualityInsights.Patching
             var cmd = new Command_Action
             {
                 defaultLabel = "QI_LiveOdds".Translate(),
-                defaultDesc  = "Show estimated chances of Excellent/Masterwork/Legendary for a chosen pawn & recipe.",
-                icon         = TexCommand.DesirePower,
-                action       = () => Find.WindowStack.Add(new UI.ChancesWindow(wt))
+                defaultDesc = "Show estimated chances of Excellent/Masterwork/Legendary for a chosen pawn & recipe.",
+                icon = TexCommand.DesirePower,
+                action = () => Find.WindowStack.Add(new UI.ChancesWindow(wt))
             };
             __result = __result.Concat(new[] { cmd });
         }
@@ -191,6 +213,8 @@ namespace QualityInsights.Patching
                 // >>> seed the roll context so AfterSetQuality sees Construction <<<
                 _currentPawn  = worker;                  // who is building right now
                 _currentSkill = SkillDefOf.Construction; // construction always uses Construction
+                _hadInspirationAtRoll = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
+                _wasProdSpecAtRoll    = QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker);
 
                 // What will this frame become?
                 var built = __instance?.def?.entityDefToBuild as ThingDef;
@@ -253,6 +277,8 @@ namespace QualityInsights.Patching
             _currentSkill = null; // ensure we never carry a stale skill into this roll
             _currentPawn = pawn;
             _currentSkill = relevantSkill;
+            _hadInspirationAtRoll = pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
+            _wasProdSpecAtRoll    = QualityInsights.Utils.QualityRules.IsProductionSpecialist(pawn);
 
             if (DebugLogs)
                 Log.Message($"[QI] Roll: pawn={P(pawn)} skill={S(relevantSkill)}");
@@ -433,8 +459,8 @@ namespace QualityInsights.Patching
                         pawnName = worker?.Name?.ToStringShort ?? worker?.LabelShort ?? "Unknown",
                         skillDef = skill?.defName ?? "Unknown",
                         skillLevelAtFinish = worker?.skills?.GetSkill(skill)?.Level ?? -1,
-                        inspiredCreativity = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity,
-                        productionSpecialist = worker != null && QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker),
+                        inspiredCreativity = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
+                        productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker)),
                         gameTicks = Find.TickManager.TicksGame,
                         mats = _currentMats != null ? new List<string>(_currentMats) : null,
                     });
@@ -448,6 +474,8 @@ namespace QualityInsights.Patching
             _forcedQuality = null;
             _currentWorkerFromRecipe = null;
             _currentMats = null;
+            _hadInspirationAtRoll = null;
+            _wasProdSpecAtRoll    = null;
         }
     }
 }

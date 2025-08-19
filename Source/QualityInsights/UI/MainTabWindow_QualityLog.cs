@@ -24,7 +24,7 @@ namespace QualityInsights.UI
         private string? filterSkill = null;  // defName from entries
 
         // cache for string truncation measurements
-        private static readonly Dictionary<string, string> TruncCache = new();
+        // private static readonly Dictionary<string, string> TruncCache = new();
 
         // --- layout constants ---
         private const float HeaderH   = 32f;
@@ -44,14 +44,40 @@ namespace QualityInsights.UI
         private const float SplitterW = 10f;                   // easier to grab
         private const float ColMinFrac = 0.06f;
 
+        // runtime (pixels) — only these move while dragging
+        private static float[] s_colPx = Array.Empty<float>();
+        private static float   s_lastTableW = -1f;
+        private const float    ColMinPx = 80f;
+
+        private void EnsureColPx(float tableW)
+        {
+            int n = ColHeaders.Length;
+
+            // sanity: make sure settings have exactly n fractions; if not, reset defaults
+            var frac = QualityInsightsMod.Settings.colFractions;
+            if (frac == null || frac.Count != n)
+            {
+                frac = QualityInsightsMod.Settings.colFractions =
+                    new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
+            }
+
+            // allocate first N-1 columns in pixels; last is auto-fill
+            if (s_colPx.Length != n - 1 || Mathf.Abs(s_lastTableW - tableW) > 0.5f || s_colPx.All(w => w <= 0f))
+            {
+                s_colPx = new float[n - 1];
+                for (int i = 0; i < n - 1; i++)
+                    s_colPx[i] = Mathf.Max(ColMinPx, tableW * frac[i]);
+                s_lastTableW = tableW;
+            }
+        }
 
         public override Vector2 RequestedTabSize
         {
             get
             {
                 // Use Verse.UI.*, not our QualityInsights.UI namespace
-                float w = Mathf.Min(Mathf.Max(980f, Verse.UI.screenWidth  * 0.90f), 1700f);
-                float h = Mathf.Min(Mathf.Max(640f,  Verse.UI.screenHeight * 0.85f), 1000f);
+                float w = Mathf.Min(Mathf.Max(980f, Verse.UI.screenWidth * 0.90f), 1700f);
+                float h = Mathf.Min(Mathf.Max(640f, Verse.UI.screenHeight * 0.85f), 1000f);
                 return new Vector2(w, h);
             }
         }
@@ -148,11 +174,21 @@ namespace QualityInsights.UI
 
                 // ===== Body (minus footer area) =====
                 var body = new Rect(0, headerH + 8f, rect.width, rect.height - headerH - 8f - FooterH);
+
                 if (s_viewMode == ViewMode.Table) DrawTable(body, list, rowH, headerH);
                 else DrawLog(body, list, rowH);
 
                 // ===== Footer: compact view toggle =====
                 var footer = new Rect(0, rect.height - FooterH, rect.width, FooterH);
+
+                // right-aligned "Settings" button
+                float sw = 90f;
+                var sbtn = new Rect(footer.xMax - sw - 6f, footer.y + 3f, sw, 28f);
+                if (Widgets.ButtonText(sbtn, "Settings"))
+                {
+                    QualityInsightsMod.OpenSettings();
+                }
+
                 float fx = 4f;
                 if (Widgets.ButtonText(new Rect(fx, footer.y + 3f, 80f, 28f), s_viewMode == ViewMode.Table ? "Table ✓" : "Table"))
                     s_viewMode = ViewMode.Table;
@@ -255,13 +291,19 @@ namespace QualityInsights.UI
 
         private void DrawTable(Rect outRect, List<QualityLogEntry> list, float rowH, float headerH)
         {
+            EnsureColPx(outRect.width);
+            int n = ColHeaders.Length;
             float hx = 0f;
-            for (int i = 0; i < ColHeaders.Length; i++)
-            {
-                float w  = outRect.width * s_col[i];
-                var hr   = new Rect(outRect.x + hx, outRect.y, w, headerH);
 
-                bool hasSplit = i < s_col.Length - 1;
+            // ----- Header -----
+            for (int i = 0; i < n; i++)
+            {
+                float w = (i < n - 1)
+                    ? s_colPx[i]
+                    : Mathf.Max(ColMinPx, outRect.width - hx);
+                var hr = new Rect(outRect.x + hx, outRect.y, w, headerH);
+
+                bool hasSplit = i < n - 1; // use n here
                 var hrLabel   = hasSplit ? new Rect(hr.x, hr.y, hr.width - SplitterW, hr.height) : hr;
 
                 if (Mouse.IsOver(hrLabel)) Widgets.DrawHighlight(hrLabel);
@@ -279,15 +321,14 @@ namespace QualityInsights.UI
                     Event.current.Use();
                 }
 
-                // splitter at the right edge of the column (except the last column)
-                if (hasSplit)
+                // splitter only for columns 0..n-2
+                if (i < n - 1)
                 {
                     var split = new Rect(hr.xMax - SplitterW, hr.y, SplitterW, hr.height);
                     MouseoverSounds.DoRegion(split);
 
-                    // small visual cue to grab
-                    var old = GUI.color;
-                    GUI.color = new Color(1f, 1f, 1f, 0.08f);
+                    // visual cue (optional)
+                    var old = GUI.color; GUI.color = new Color(1f, 1f, 1f, 0.08f);
                     Widgets.DrawLineVertical(split.center.x, split.y + 4f, split.height - 8f);
                     GUI.color = old;
 
@@ -303,50 +344,69 @@ namespace QualityInsights.UI
             }
             Widgets.DrawLineHorizontal(outRect.x, outRect.y + headerH - 1f, outRect.width);
 
-
-            // handle splitter drag (if any)
+            // ----- Handle splitter drag (if any) -----
             if (s_dragCol >= 0)
             {
                 if (Event.current.type == EventType.MouseDrag)
                 {
-                    float totalW = outRect.width;
                     float dx = Event.current.mousePosition.x - s_dragStartX;
                     s_dragStartX = Event.current.mousePosition.x;
 
-                    float df = dx / totalW;
-                    int a = s_dragCol, b = s_dragCol + 1;
+                    int i = s_dragCol; // dragged col (0..n-2)
+                    float newW = Mathf.Max(ColMinPx, s_colPx[i] + dx);
 
-                    // try to add to left (a) and subtract from right (b); clamp
-                    float newA = Mathf.Clamp(s_col[a] + df, ColMinFrac, 1f);
-                    float delta = newA - s_col[a];
-                    float newB = Mathf.Clamp(s_col[b] - delta, ColMinFrac, 1f);
+                    // current auto-fill (last column)
+                    float used = 0f; for (int k = 0; k < s_colPx.Length; k++) used += s_colPx[k];
+                    float lastW = Mathf.Max(ColMinPx, outRect.width - used);
 
-                    // if b clamped, adjust a so total stays 1
-                    float actuallyTaken = s_col[b] - newB;
-                    s_col[a] += (delta - actuallyTaken);
-                    s_col[b] = newB;
+                    // how much we’re asking from / giving to the last column
+                    float delta    = newW - s_colPx[i];
+                    float newLastW = lastW - delta;
 
-                    NormalizeCols(s_col);
+                    // clamp so last doesn't go below min
+                    if (newLastW < ColMinPx)
+                    {
+                        float allowed = lastW - ColMinPx;
+                        newW     = s_colPx[i] + allowed;
+                        newLastW = ColMinPx;
+                    }
 
+                    s_colPx[i] = newW; // last col remains implied
                     Event.current.Use();
                 }
                 else if (Event.current.type == EventType.MouseUp || Event.current.rawType == EventType.MouseUp)
                 {
                     s_dragCol = -1;
-                    // persist to settings
-                    QualityInsightsMod.Settings.colFractions = new List<float>(s_col);
+
+                    // persist: convert pixel widths back to fractions (including last)
+                    float used = 0f; for (int k = 0; k < s_colPx.Length; k++) used += s_colPx[k];
+                    float lastW = Mathf.Max(ColMinPx, outRect.width - used);
+
+                    var fracs = new List<float>(n);
+                    for (int k = 0; k < s_colPx.Length; k++) fracs.Add(Mathf.Max(ColMinPx, s_colPx[k]) / outRect.width);
+                    fracs.Add(lastW / outRect.width);
+
+                    // normalize tiny drift
+                    float sum = fracs.Sum();
+                    if (sum > 0f) for (int k = 0; k < fracs.Count; k++) fracs[k] /= sum;
+
+                    QualityInsightsMod.Settings.colFractions = fracs;
                     QualityInsightsMod.Instance.WriteSettings();
                     Event.current.Use();
                 }
             }
 
-            // 2) Sort after header interactions
-                list = SortForTable(list);
+            // ----- Sort after header interactions -----
+            list = SortForTable(list);
 
-            // 3) Scroll area with rows
+            // ----- Rows area -----
             var rowsOut  = new Rect(outRect.x, outRect.y + headerH, outRect.width, outRect.height - headerH);
             var viewRect = new Rect(0, 0, rowsOut.width - 16f, list.Count * rowH + 8f);
             Widgets.BeginScrollView(rowsOut, ref scroll, viewRect);
+
+            // Precompute last-column width for the rows area (based on viewRect.width)
+            float usedPx = 0f; for (int k = 0; k < s_colPx.Length; k++) usedPx += s_colPx[k];
+            float lastPxRows = Mathf.Max(ColMinPx, viewRect.width - usedPx);
 
             float y = 0f;
             int idx = 0;
@@ -357,45 +417,44 @@ namespace QualityInsights.UI
                 if ((idx & 1) == 1) DrawZebra(row);
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
-                // Time
-                DrawCellOneLine(new Rect(x, y, viewRect.width * s_col[0], rowH), e.TimeAgoString);
-                x += viewRect.width * s_col[0];
+                for (int i = 0; i < n; i++)
+                {
+                    float w = (i < n - 1) ? s_colPx[i] : lastPxRows;
+                    var cell = new Rect(x, y, w, rowH);
 
-                // Pawn (with portrait)
-                DrawPawnWithIconOneLine(new Rect(x, y, viewRect.width * s_col[1], rowH), e.pawnName);
-                x += viewRect.width * s_col[1];
+                    switch (i)
+                    {
+                        case 0: // Time
+                            DrawCellOneLine(cell, e.TimeAgoString);
+                            break;
+                        case 1: // Pawn (with portrait)
+                            DrawPawnWithIconOneLine(cell, e.pawnName);
+                            break;
+                        case 2: // Skill
+                            DrawCellOneLine(cell, e.skillDef ?? "Unknown");
+                            break;
+                        case 3: // Lvl (right-aligned)
+                            DrawCellRightOneLine(cell, e.skillLevelAtFinish.ToString());
+                            break;
+                        case 4: // Quality
+                            DrawQualityOneLine(cell, e.quality);
+                            break;
+                        case 5: // Item (def icon)
+                            DrawThingWithIconOneLine(cell, e.thingDef);
+                            break;
+                        case 6: // Stuff / Materials
+                            if (e.HasMats) DrawMatsListOneLine(cell, e.mats);
+                            else           DrawDefWithIconOneLine(cell, e.stuffDef);
+                            break;
+                        case 7: // Tags
+                            string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
+                                        (e.productionSpecialist ? "ProdSpec" : string.Empty);
+                            DrawCellOneLine(cell, tags);
+                            break;
+                    }
 
-                // Skill
-                DrawCellOneLine(new Rect(x, y, viewRect.width * s_col[2], rowH), e.skillDef ?? "Unknown");
-                x += viewRect.width * s_col[2];
-
-                // Lvl (right-aligned)
-                DrawCellRightOneLine(new Rect(x, y, viewRect.width * s_col[3], rowH), e.skillLevelAtFinish.ToString());
-                x += viewRect.width * s_col[3];
-
-                // Quality
-                var qRect = new Rect(x, y, viewRect.width * s_col[4], rowH);
-                DrawQualityOneLine(qRect, e.quality);
-                x += viewRect.width * s_col[4];
-
-                // Item (def icon)
-                var itemRect = new Rect(x, y, viewRect.width * s_col[5], rowH);
-                DrawThingWithIconOneLine(itemRect, e.thingDef);
-                x += viewRect.width * s_col[5];
-
-                // Stuff (def icon if available)
-                var stuffRect = new Rect(x, y, viewRect.width * s_col[6], rowH);
-                if (e.HasMats)
-                    DrawMatsListOneLine(stuffRect, e.mats);
-                else
-                    DrawDefWithIconOneLine(stuffRect, e.stuffDef);
-                x += viewRect.width * s_col[6];
-
-
-                // Tags
-                string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
-                            (e.productionSpecialist ? "ProdSpec" : string.Empty);
-                DrawCellOneLine(new Rect(x, y, viewRect.width * s_col[7], rowH), tags);
+                    x += w;
+                }
 
                 y += rowH;
                 idx++;
@@ -433,7 +492,7 @@ namespace QualityInsights.UI
             Text.Anchor = TextAnchor.MiddleLeft;
 
             string t = text ?? string.Empty;
-            string shown = t.Truncate(r.width, TruncCache);
+            string shown = t.Truncate(r.width);   // <-- no global cache
             Widgets.Label(r, shown);
             if (!string.IsNullOrEmpty(t) && shown != t) TooltipHandler.TipRegion(r, t);
 
@@ -450,7 +509,7 @@ namespace QualityInsights.UI
             Text.Anchor = TextAnchor.MiddleRight;
 
             string t = text ?? string.Empty;
-            string shown = t.Truncate(r.width, TruncCache);
+            string shown = t.Truncate(r.width);   // <-- no global cache
             Widgets.Label(r, shown);
             if (!string.IsNullOrEmpty(t) && shown != t) TooltipHandler.TipRegion(r, t);
 

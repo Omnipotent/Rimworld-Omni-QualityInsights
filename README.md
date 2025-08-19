@@ -4,9 +4,15 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 
 ## Features
 
-* **Quality Log**
+* **Quality Log (Table View)**
 
   * New top-bar button opens a searchable, filterable log of all quality roll outcomes.
+  * Now displayed in a **resizable table view** with the following improvements:
+    * **Sortable columns** — click any header to sort ascending/descending.
+    * **Resizable columns** — drag splitters between headers; widths persist across sessions.
+    * **Zebra striping & hover highlights** for better readability.
+    * **Dynamic last column** auto-fills remaining space while others are resizable.
+    * **Persisted column layout** — your column widths are stored in mod settings and restored on reload.
   * Tracks who created the item, with what skill, and the final quality.
   * Search bar + dropdown filters for **quality tier** and **skill**.
   * Duplicate suppression ensures one entry per item, even if multiple late SetQuality calls occur.
@@ -18,13 +24,11 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * Appears on any work table with quality-producing recipes.
   * Lets you pick a recipe and pawn to see full odds across **all quality tiers** (Awful → Legendary).
   * Resolves the correct skill dynamically:
-
     * Construction for buildings/furniture.
     * Artistic for sculptures and CompArt items.
     * Crafting for weapons, apparel, and general bills.
     * Uses recipe’s explicit workSkill if defined.
   * Accounts for inspirations and roles:
-
     * **Inspired Creativity** guarantees Masterwork (Legendary if any chance > 0).
     * **Production Specialist** (Ideology) shifts results +1 tier.
   * Probabilities sampled from the **actual RimWorld quality roll function**, so they stay accurate with mods.
@@ -65,12 +69,16 @@ Drop the entire mod folder into `RimWorld/Mods/QualityInsights`. Ensure `Assembl
 ## Use
 
 * A new **Quality log** main button appears in the top bar.
+* The log is shown in the new **table view**, with sortable/resizable headers and persistent layout.
 * Select any **work table** to see a **Quality odds** gizmo; click it to choose a recipe and pawn to view odds for all qualities (Awful through Legendary).
-* In **Mod Settings**, you can enable the dev cheat and adjust the probability threshold and sample count.
+* In **Mod Settings**, you can:
+  * Enable the dev cheat and adjust the probability threshold and sample count.
+  * Adjust **table column widths**, which are saved automatically when you resize columns.
 
 ## Notes
 
 * Odds are estimated by sampling the **actual game method** that rolls quality, so they automatically stay correct with most quality-altering mods.
 * Legendary is only allowed if the pawn has Inspired Creativity or the Production Specialist role; the cheat respects this rule.
 * Handles both crafting and construction quality reliably, with proper pawn/skill attribution.
+* Table view was designed for performance: smooth scrolling, cached sorting, and lightweight rendering.
 * Performance optimized: results cache between input changes to avoid laggy UI interactions.

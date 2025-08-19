@@ -1,3 +1,4 @@
+// Source\QualityInsights\ModInit.cs
 using System.Collections.Generic;
 using RimWorld;
 using UnityEngine;
@@ -16,7 +17,15 @@ namespace QualityInsights
             Settings  = GetSettings<QualityInsightsSettings>();
         }
 
-        public override string SettingsCategory() => "QualityInsights";
+        // (optional cosmetic) This is the label that appears on the Mods screen.
+        public override string SettingsCategory() => "Quality Insights";
+
+        // ⇣ NEW: tiny helper so UI code can open the settings dialog cleanly
+        public static void OpenSettings()
+        {
+            if (Instance != null)
+                Find.WindowStack.Add(new Dialog_ModSettings(Instance));
+        }
 
         public override void DoSettingsWindowContents(Rect inRect)
         {
@@ -60,7 +69,7 @@ namespace QualityInsights
                 $"Row height scale: {Settings.tableRowScale:0.00}",
                 Settings.tableRowScale, 0.80f, 1.50f) * 100f) / 100f;
 
-            // Reset columns button (since widths are now resizable via dragging)
+            // Reset columns button (drag-resizable columns persist as fractions)
             if (ls.ButtonText("Reset column widths"))
             {
                 Settings.colFractions = new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };

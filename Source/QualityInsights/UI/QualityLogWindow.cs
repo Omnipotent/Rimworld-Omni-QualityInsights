@@ -24,6 +24,7 @@ namespace QualityInsights.UI
 
         public override void DoWindowContents(Rect inRect)
         {
+            resizeable = true;
             _tab.DoWindowContents(inRect);
         }
     }

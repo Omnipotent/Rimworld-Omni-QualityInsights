@@ -3,16 +3,40 @@
   <name>QualityInsights</name>
   <author>Omni</author>
   <packageId>omni.qualityinsights</packageId>
+
   <supportedVersions>
     <li>1.6</li>
     <li>1.5</li>
     <li>1.4</li>
   </supportedVersions>
-  <description>
-    Quality log + live quality odds + optional dev cheat to force the highest tier with ≥ configurable probability (default 2%).
 
-    • Logs every crafted/built item with: pawn, skill and level, quality, inspiration/specialist, time, and time-ago.
-    • Shows live Excellent/Masterwork/Legendary chances (sampled from the games actual quality algorithm) on work tables.
-    • Optional dev cheat: always pick the highest tier whose chance ≥ threshold. Legendary still requires legal bumps (Inspiration/Production Specialist).
+  <description>
+    Quality log + live quality odds + optional dev cheat (≥ configurable threshold).
+
+    • Quality Log (Table View)
+      – New resizable, sortable table with zebra striping & hover highlight.
+      – Drag splitters to resize columns; layout persists in Mod Settings.
+      – Dynamic last column auto-fills remaining space.
+      – Search box + dropdown filters (quality tier, skill).
+      – Materials/Stuff column shows icons + full tooltip; CSV export button.
+      – Duplicate suppression prevents multiple entries for the same item.
+
+    • Live Quality Odds Gizmo
+      – Appears on work tables; pick a pawn & recipe to see full tier odds (Awful → Legendary).
+      – Uses the game’s actual roll function for accurate, mod-friendly probabilities.
+      – Correctly resolves skill (Construction/Artistic/Crafting or recipe.workSkill).
+      – Handles inspirations and roles (Inspired Creativity, Production Specialist).
+
+    • Construction Path Support
+      – Binds frame → completed thing; attributes builder pawn and Construction skill.
+      – Handles minified furniture.
+
+    • Optional Dev Cheat
+      – Forces final quality ≥ the lowest tier with chance ≥ threshold.
+      – Legendary still requires a legal bump (Inspiration/Production Specialist).
+
+    • UX & Performance
+      – “Settings” button in the log window footer jumps straight to mod settings.
+      – Smooth scrolling and lightweight rendering; recalculations only when inputs change.
   </description>
 </ModMetaData>
