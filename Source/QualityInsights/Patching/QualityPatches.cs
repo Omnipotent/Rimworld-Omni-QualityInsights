@@ -34,6 +34,7 @@ namespace QualityInsights.Patching
         // Tracks construction in-flight between CompleteConstruction prefix/postfix
         private struct BuildCtx { public Map map; public IntVec3 cell; public ThingDef builtDef; public Pawn worker; }
         private static readonly Dictionary<int, BuildCtx> _buildCtx = new();
+        private static readonly HashSet<int> _bumping = new();
 
 
         static QualityPatches()
@@ -104,7 +105,7 @@ namespace QualityInsights.Patching
             {
                 harmony.Patch(
                     complete,
-                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Prefix)),
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Prefix)),
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Postfix)));
             }
             else
@@ -135,6 +136,7 @@ namespace QualityInsights.Patching
                 _currentMats = ingredients?
                     .Select(t => t?.def?.defName)
                     .Where(n => !string.IsNullOrEmpty(n))
+                    .Select(n => n!)
                     .Distinct()
                     .ToList();
             }
@@ -337,6 +339,9 @@ namespace QualityInsights.Patching
                 return;
             }
 
+            // Use one id for the whole method
+            int id = thing.thingIDNumber;
+
             // Resolve skill first (prefer from roll)
             SkillDef skill = ResolveSkillForThing(thing, _currentSkill);
 
@@ -350,42 +355,51 @@ namespace QualityInsights.Patching
             }
 
             // --- CHEAT ENFORCEMENT ---
-            // If the prefix didn't run, _forcedQuality may be null. Recompute here.
             QualityCategory? forced = _forcedQuality;
-            if (QualityInsightsMod.Settings.enableCheat && forced == null && worker != null)
-            {
-                forced = TryComputeCheatOverride(worker, skill);
-                if (DebugLogs) Log.Message($"[QI] AfterSetQuality recompute forced={forced?.ToString() ?? "null"}");
-            }
 
-            // If a forced tier exists and it's higher than what vanilla set, bump it now.
+            // If the prefix didn't run (or didn't force), recompute here.
+            if (QualityInsightsMod.Settings.enableCheat && forced == null && worker != null)
+                forced = TryComputeCheatOverride(worker, skill);
+
             if (QualityInsightsMod.Settings.enableCheat && forced.HasValue && q < forced.Value)
             {
+                if (_bumping.Contains(id)) goto AfterBump;
+
                 try
                 {
-                    __instance.SetQuality(forced.Value, null);
-                    if (DebugLogs) Log.Message($"[QI] Bumped {thing.LabelCap} from {q} -> {forced.Value}");
+                    _bumping.Add(id);
+
+                    var art = thing.TryGetComp<CompArt>();
+                    if (art != null && !art.Active && worker != null)
+                    {
+                        try { art.InitializeArt(worker); } catch { /* safe */ }
+                    }
+
+                    var ctx = ArtGenerationContext.Colony;
+                    __instance.SetQuality(forced.Value, ctx);
+
+                    if (DebugLogs) Log.Message($"[QI] Bumped {thing.LabelCap} from {q} -> {forced.Value} (ctx={ctx})");
                     q = forced.Value;
                 }
-                catch { /* keep gameplay safe */ }
+                catch { /* never break gameplay */ }
+                finally { _bumping.Remove(id); }
             }
+        AfterBump:
 
             // --- duplicate suppression ---
             int now = Find.TickManager.TicksGame;
-            int id = thing.thingIDNumber;
 
             if (_logGuard.TryGetValue(id, out var g) && g.q == q && now - g.tick < 120)
             {
                 if (DebugLogs)
                     Log.Message($"[QI] Suppressed duplicate log for {thing.LabelCap} (q={q}) within {now - g.tick} ticks.");
-                goto ClearAndReturn;  // jump to the cleanup at the end of AfterSetQuality
+                goto ClearAndReturn;
             }
             _logGuard[id] = (now, q);
 
-            // Optional light pruning to avoid unbounded growth.
+            // Optional light pruning
             if ((now % 5000) == 0 && _logGuard.Count > 512)
             {
-                // drop records older than ~10000 ticks (~2.8 in-game hours)
                 var cutoff = now - 10000;
                 foreach (var key in _logGuard.Where(kv => kv.Value.tick < cutoff).Select(kv => kv.Key).ToList())
                     _logGuard.Remove(key);
@@ -399,17 +413,18 @@ namespace QualityInsights.Patching
                 try
                 {
                     var comp = QualityInsights.Logging.QualityLogComponent.Ensure(Current.Game);
+
+                    // (optional) still capture CompIngredients if present
                     var mats = new List<string>();
                     try
                     {
                         var compIng = thing?.TryGetComp<CompIngredients>();
                         if (compIng?.ingredients != null)
-                        {
                             foreach (var d in compIng.ingredients)
                                 if (d != null) mats.Add(d.defName);
-                        }
                     }
-                    catch { /* ignore; keep gameplay safe */ }
+                    catch { }
+
                     comp.Add(new QualityLogEntry
                     {
                         thingDef = thing.def?.defName ?? "Unknown",
@@ -421,13 +436,12 @@ namespace QualityInsights.Patching
                         inspiredCreativity = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity,
                         productionSpecialist = worker != null && QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker),
                         gameTicks = Find.TickManager.TicksGame,
-                        mats = _currentMats != null ? new List<string>(_currentMats) : null,   // NEW
+                        mats = _currentMats != null ? new List<string>(_currentMats) : null,
                     });
                 }
                 catch { /* never break gameplay */ }
             }
 
-        // Clear after consumption
         ClearAndReturn:
             _currentPawn = null;
             _currentSkill = null;

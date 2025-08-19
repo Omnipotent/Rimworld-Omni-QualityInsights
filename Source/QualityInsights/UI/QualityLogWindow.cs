@@ -6,8 +6,7 @@ namespace QualityInsights.UI
 {
     public class QualityLogWindow : Window
     {
-        private readonly MainTabWindow_QualityLog _tab = new();  // reuse the tab UI
-
+        private readonly MainTabWindow_QualityLog _tab = new();
         public override Vector2 InitialSize => new(1100f, 720f);
 
         public QualityLogWindow()
@@ -16,14 +15,16 @@ namespace QualityInsights.UI
             draggable = true;
             resizeable = true;
 
-            absorbInputAroundWindow = false; // <-- let the map receive input outside the window
-            // optional:
-            // closeOnClickedOutside = true; // click outside to close
+            // Let the map handle input OUTSIDE the window.
+            absorbInputAroundWindow = false;
+
+            // Don’t freeze camera movement globally.
+            preventCameraMotion = false;
         }
 
         public override void DoWindowContents(Rect inRect)
         {
-            _tab.DoWindowContents(inRect); // same table UI, columns, filters, etc.
+            _tab.DoWindowContents(inRect);
         }
     }
 }
