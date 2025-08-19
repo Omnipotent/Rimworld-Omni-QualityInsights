@@ -24,6 +24,18 @@ namespace QualityInsights.UI
 
         // cache for string truncation measurements
         private static readonly Dictionary<string, string> TruncCache = new();
+
+        // --- layout constants ---
+        private const float HeaderH   = 32f;
+        private const float FooterH   = 34f;
+        private const float RowH      = 28f;
+        private const float ColHeaderH= 28f;
+        private const float Pad       = 8f;
+
+        // fixed widths so buttons don’t jump around as labels change
+        private const float QualBtnW  = 140f;     // wide enough for “Legendary”
+        private const float SkillBtnW = 160f;     // most skills fit comfortably
+
         public override Vector2 RequestedTabSize => new(980f, 640f);
 
         public override void DoWindowContents(Rect rect)
@@ -32,69 +44,53 @@ namespace QualityInsights.UI
             var rows = comp.entries.AsEnumerable();
 
             // ===== Header (filters + export/reload) =====
-            var header = new Rect(0, 0, rect.width, 32f);
+            var header = new Rect(0, 0, rect.width, HeaderH);
 
-            // Search
-            Widgets.Label(header.LeftPart(0.12f), "Search:");
-            search = Widgets.TextField(header.LeftPart(0.34f).RightPart(0.88f), search);
+            // Search label + box with explicit spacing
+            var searchLabel = new Rect(0, header.y, 70f, HeaderH);
+            Widgets.Label(searchLabel, "Search:");
+            var searchBox = new Rect(searchLabel.xMax + 6f, header.y, rect.width * 0.28f, HeaderH);
+            search = Widgets.TextField(searchBox, search);
 
-            float x = rect.width * 0.34f + 8f;
-
-            // Small helper to make narrower buttons that fit text
-            float ButtonAuto(ref float xx, string label, float pad = 16f)
+            // Quality dropdown (fixed width)
+            float x = searchBox.xMax + Pad;
+            if (Widgets.ButtonText(new Rect(x, header.y, QualBtnW, HeaderH), filterQuality?.ToString() ?? "All qualities"))
             {
-                var sz = Text.CalcSize(label).x + pad;
-                if (Widgets.ButtonText(new Rect(xx, 0, sz, 32f), label)) { xx += sz + 8f; return sz; }
-                xx += sz + 8f; return -1f;
-            }
-
-            // Quality dropdown (auto width)
-            {
-                string lab = filterQuality?.ToString() ?? "All qualities";
-                float w = Text.CalcSize(lab).x + 24f;
-                if (Widgets.ButtonText(new Rect(x, 0, w, 32f), lab))
+                var opts = new List<FloatMenuOption>();
+                foreach (QualityCategory q in Enum.GetValues(typeof(QualityCategory)))
                 {
-                    var opts = new List<FloatMenuOption>();
-                    foreach (QualityCategory q in Enum.GetValues(typeof(QualityCategory)))
-                    {
-                        var localQ = q;
-                        opts.Add(new FloatMenuOption(localQ.ToString(), () => filterQuality = localQ));
-                    }
-                    opts.Add(new FloatMenuOption("All", () => filterQuality = null));
-                    Find.WindowStack.Add(new FloatMenu(opts));
+                    var localQ = q;
+                    opts.Add(new FloatMenuOption(localQ.ToString(), () => filterQuality = localQ));
                 }
-                x += w + 8f;
+                opts.Add(new FloatMenuOption("All", () => filterQuality = null));
+                Find.WindowStack.Add(new FloatMenu(opts));
             }
+            x += QualBtnW + Pad;
 
-            // Skill dropdown (built from entries; auto width)
+            // Skill dropdown (fixed width; list built from entries so it’s mod-safe)
+            var skillsPresent = comp.entries
+                .Select(e => e.skillDef ?? "Unknown")
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (Widgets.ButtonText(new Rect(x, header.y, SkillBtnW, HeaderH), filterSkill ?? "All skills"))
             {
-                var skillsPresent = comp.entries
-                    .Select(e => e.skillDef ?? "Unknown")
-                    .Where(s => !string.IsNullOrEmpty(s))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                string lab = filterSkill ?? "All skills";
-                float w = Text.CalcSize(lab).x + 24f;
-                if (Widgets.ButtonText(new Rect(x, 0, w, 32f), lab))
+                var opts = new List<FloatMenuOption>();
+                foreach (var sd in skillsPresent)
                 {
-                    var opts = new List<FloatMenuOption>();
-                    foreach (var sd in skillsPresent)
-                    {
-                        var local = sd;
-                        opts.Add(new FloatMenuOption(local, () => filterSkill = local));
-                    }
-                    opts.Add(new FloatMenuOption("All", () => filterSkill = null));
-                    Find.WindowStack.Add(new FloatMenu(opts));
+                    var local = sd;
+                    opts.Add(new FloatMenuOption(local, () => filterSkill = local));
                 }
-                x += w + 8f;
+                opts.Add(new FloatMenuOption("All", () => filterSkill = null));
+                Find.WindowStack.Add(new FloatMenu(opts));
             }
 
             // Export / Reload on the far right
-            if (Widgets.ButtonText(new Rect(rect.width - 220f, 0, 100f, 32f), "QI_ExportCSV".Translate()))
+            if (Widgets.ButtonText(new Rect(rect.width - 220f, header.y, 100f, HeaderH), "QI_ExportCSV".Translate()))
                 ExportCSV(comp);
-            if (Widgets.ButtonText(new Rect(rect.width - 110f, 0, 110f, 32f), "Reload")) { /* live list */ }
+            if (Widgets.ButtonText(new Rect(rect.width - 110f, header.y, 110f, HeaderH), "Reload")) { /* live list */ }
 
             // ===== Apply filters =====
             if (!string.IsNullOrWhiteSpace(search))
@@ -109,13 +105,12 @@ namespace QualityInsights.UI
             var list = rows.ToList();
 
             // ===== Body (minus footer area) =====
-            const float footerH = 34f;
-            var body = new Rect(0, 40f, rect.width, rect.height - 40f - footerH);
+            var body = new Rect(0, HeaderH + 8f, rect.width, rect.height - HeaderH - 8f - FooterH);
             if (s_viewMode == ViewMode.Table) DrawTable(body, list);
             else                              DrawLog(body, list);
 
             // ===== Footer: compact view toggle =====
-            var footer = new Rect(0, rect.height - footerH, rect.width, footerH);
+            var footer = new Rect(0, rect.height - FooterH, rect.width, FooterH);
             float fx = 4f;
             if (Widgets.ButtonText(new Rect(fx, footer.y + 3f, 80f, 28f), s_viewMode == ViewMode.Table ? "Table ✓" : "Table"))
                 s_viewMode = ViewMode.Table;
@@ -134,9 +129,11 @@ namespace QualityInsights.UI
             Widgets.BeginScrollView(outRect, ref scroll, viewRect);
 
             float y = 0f;
+            int idx = 0;
             foreach (var e in list)
             {
                 var r = new Rect(0, y, viewRect.width, rowH);
+                if ((idx & 1) == 1) DrawZebra(r);         // subtle zebra striping
                 if (Mouse.IsOver(r)) Widgets.DrawHighlight(r);
 
                 string pawn  = e.pawnName ?? "Unknown";
@@ -145,9 +142,9 @@ namespace QualityInsights.UI
                 string tags  = (e.inspiredCreativity ? " | Inspired" : string.Empty) +
                                (e.productionSpecialist ? " | ProdSpec" : string.Empty);
 
-                // one-line, truncated
                 DrawCellOneLine(r, $"{e.TimeAgoString} | {pawn} ({skill} {e.skillLevelAtFinish}) ➜ {e.quality} | {e.thingDef}{stuff}{tags}");
                 y += rowH + 2f;
+                idx++;
             }
 
             Widgets.EndScrollView();
@@ -161,17 +158,12 @@ namespace QualityInsights.UI
         {
             list = SortForTable(list);
 
-            var rowH = 28f;
-            var headerH = 28f;
-            var viewRect = new Rect(0, 0, outRect.width - 16f, headerH + list.Count * rowH + 8f);
-            Widgets.BeginScrollView(outRect, ref scroll, viewRect);
-
-            // Header (click to sort)
-            float y = 0f, x = 0f;
+            // 1) Sticky header (not inside scroll view)
+            float x = 0f;
             for (int i = 0; i < ColHeaders.Length; i++)
             {
-                float w = viewRect.width * ColWidths[i];
-                var hr = new Rect(x, y, w, headerH);
+                float w = outRect.width * ColWidths[i];
+                var hr = new Rect(outRect.x + x, outRect.y, w, ColHeaderH);
                 if (Mouse.IsOver(hr)) Widgets.DrawHighlight(hr);
                 var label = ColHeaders[i] + (s_sortCol == i ? (s_sortAsc ? " ▲" : " ▼") : string.Empty);
                 if (Widgets.ButtonText(hr, label, false, false, false))
@@ -180,38 +172,48 @@ namespace QualityInsights.UI
                 }
                 x += w;
             }
-            y += headerH;
-            Widgets.DrawLineHorizontal(0, y - 1f, viewRect.width);
+            Widgets.DrawLineHorizontal(outRect.x, outRect.y + ColHeaderH - 1f, outRect.width);
 
-            // Rows
+            // 2) Scroll area with rows
+            var rowsOut = new Rect(outRect.x, outRect.y + ColHeaderH, outRect.width, outRect.height - ColHeaderH);
+            var viewRect = new Rect(0, 0, rowsOut.width - 16f, list.Count * RowH + 8f);
+            Widgets.BeginScrollView(rowsOut, ref scroll, viewRect);
+
+            float y = 0f;
+            int idx = 0;
             foreach (var e in list)
             {
                 x = 0f;
-                var row = new Rect(0, y, viewRect.width, rowH);
+                var row = new Rect(0, y, viewRect.width, RowH);
+                if ((idx & 1) == 1) DrawZebra(row);     // zebra striping
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[0], rowH), e.TimeAgoString); x += viewRect.width * ColWidths[0];
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[1], rowH), e.pawnName ?? "Unknown"); x += viewRect.width * ColWidths[1];
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[2], rowH), e.skillDef ?? "Unknown"); x += viewRect.width * ColWidths[2];
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[3], rowH), e.skillLevelAtFinish.ToString()); x += viewRect.width * ColWidths[3];
+                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[0], RowH), e.TimeAgoString); x += viewRect.width * ColWidths[0];
+                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[1], RowH), e.pawnName ?? "Unknown"); x += viewRect.width * ColWidths[1];
+                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[2], RowH), e.skillDef ?? "Unknown"); x += viewRect.width * ColWidths[2];
 
-                var qRect = new Rect(x, y, viewRect.width * ColWidths[4], rowH);
+                // right-align numeric level
+                DrawCellRightOneLine(new Rect(x, y, viewRect.width * ColWidths[3], RowH), e.skillLevelAtFinish.ToString());
+                x += viewRect.width * ColWidths[3];
+
+                var qRect = new Rect(x, y, viewRect.width * ColWidths[4], RowH);
                 DrawQualityOneLine(qRect, e.quality);
                 x += viewRect.width * ColWidths[4];
 
-                var itemRect = new Rect(x, y, viewRect.width * ColWidths[5], rowH);
+                var itemRect = new Rect(x, y, viewRect.width * ColWidths[5], RowH);
                 DrawThingWithIconOneLine(itemRect, e.thingDef);
                 x += viewRect.width * ColWidths[5];
 
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[6], rowH), e.stuffDef ?? string.Empty);
+                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[6], RowH), e.stuffDef ?? string.Empty);
                 x += viewRect.width * ColWidths[6];
 
                 string tags =
                     (e.inspiredCreativity ? "Inspired " : string.Empty) +
                     (e.productionSpecialist ? "ProdSpec" : string.Empty);
-                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[7], rowH), tags);
+                DrawCellOneLine(new Rect(x, y, viewRect.width * ColWidths[7], RowH), tags);
 
-                y += rowH;
+                y += RowH;
+                idx++;
             }
 
             Widgets.EndScrollView();
@@ -234,7 +236,7 @@ namespace QualityInsights.UI
             return (s_sortAsc ? ordered : ordered.Reverse()).ToList();
         }
 
-        // ===== one-line cell renderers (truncate + tooltip + centered vertically) =====
+        // ===== one-line cell renderers (truncate + tooltip) =====
         private static void DrawCellOneLine(Rect r, string text)
         {
             r = r.ContractedBy(4f, 0f);
@@ -242,6 +244,23 @@ namespace QualityInsights.UI
             var oldAnchor = Text.Anchor;
             Text.WordWrap = false;
             Text.Anchor = TextAnchor.MiddleLeft;
+
+            string t = text ?? string.Empty;
+            string shown = t.Truncate(r.width, TruncCache);
+            Widgets.Label(r, shown);
+            if (!string.IsNullOrEmpty(t) && shown != t) TooltipHandler.TipRegion(r, t);
+
+            Text.WordWrap = oldWrap;
+            Text.Anchor = oldAnchor;
+        }
+
+        private static void DrawCellRightOneLine(Rect r, string text)
+        {
+            r = r.ContractedBy(4f, 0f);
+            var oldWrap = Text.WordWrap;
+            var oldAnchor = Text.Anchor;
+            Text.WordWrap = false;
+            Text.Anchor = TextAnchor.MiddleRight;
 
             string t = text ?? string.Empty;
             string shown = t.Truncate(r.width, TruncCache);
@@ -288,6 +307,14 @@ namespace QualityInsights.UI
             DrawCellOneLine(right, thingDefName ?? string.Empty);
             if (!string.IsNullOrEmpty(thingDefName))
                 TooltipHandler.TipRegion(r, thingDefName);
+        }
+
+        private static void DrawZebra(Rect r)
+        {
+            var old = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, 0.04f);
+            GUI.DrawTexture(r, BaseContent.WhiteTex);
+            GUI.color = old;
         }
 
         // ===== CSV export =====
