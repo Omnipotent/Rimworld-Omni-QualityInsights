@@ -19,6 +19,8 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static Pawn? _currentWorkerFromRecipe;
         [ThreadStatic] private static SkillDef? _currentSkill;
         [ThreadStatic] private static QualityCategory? _forcedQuality;
+        [ThreadStatic] private static List<string>? _currentMats;
+
 
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
         private static readonly Dictionary<int, (int tick, QualityCategory q)> _logGuard
@@ -118,17 +120,25 @@ namespace QualityInsights.Patching
             Log.Message("[QualityInsights] Patches applied.");
         }
 
-        public static void MakeRecipeProducts_Prefix([HarmonyArgument(0)] RecipeDef recipeDef,
-                                                    [HarmonyArgument(1)] Pawn worker)
+        public static void MakeRecipeProducts_Prefix(
+            [HarmonyArgument(0)] RecipeDef recipeDef,
+            [HarmonyArgument(1)] Pawn worker,
+            [HarmonyArgument(2)] List<Thing> ingredients)   // <— grab actual used ingredients
         {
             _currentWorkerFromRecipe = worker;
-            _currentPawn = worker;
-
-            // Use the recipe’s declared workSkill when available
+            _currentPawn  = worker;
             _currentSkill = ResolveSkillForRecipeOrProduct(recipeDef);
 
-            if (DebugLogs)
-                Log.Message($"[QI] MakeRecipeProducts_Prefix: worker={P(worker)} skill={S(_currentSkill)} recipe={recipeDef?.defName}");
+            // Collect distinct defNames of used ingredients (steel, component, neutroamine, etc.)
+            try
+            {
+                _currentMats = ingredients?
+                    .Select(t => t?.def?.defName)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Distinct()
+                    .ToList();
+            }
+            catch { _currentMats = null; }
         }
 
         // Gizmo injection on work tables
@@ -389,7 +399,18 @@ namespace QualityInsights.Patching
                 try
                 {
                     var comp = QualityInsights.Logging.QualityLogComponent.Ensure(Current.Game);
-                    comp.Add(new QualityInsights.Logging.QualityLogEntry
+                    var mats = new List<string>();
+                    try
+                    {
+                        var compIng = thing?.TryGetComp<CompIngredients>();
+                        if (compIng?.ingredients != null)
+                        {
+                            foreach (var d in compIng.ingredients)
+                                if (d != null) mats.Add(d.defName);
+                        }
+                    }
+                    catch { /* ignore; keep gameplay safe */ }
+                    comp.Add(new QualityLogEntry
                     {
                         thingDef = thing.def?.defName ?? "Unknown",
                         stuffDef = thing.Stuff?.defName,
@@ -398,9 +419,9 @@ namespace QualityInsights.Patching
                         skillDef = skill?.defName ?? "Unknown",
                         skillLevelAtFinish = worker?.skills?.GetSkill(skill)?.Level ?? -1,
                         inspiredCreativity = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity,
-                        // productionSpecialist = QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker),
                         productionSpecialist = worker != null && QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker),
-                        gameTicks = Find.TickManager.TicksGame
+                        gameTicks = Find.TickManager.TicksGame,
+                        mats = _currentMats != null ? new List<string>(_currentMats) : null,   // NEW
                     });
                 }
                 catch { /* never break gameplay */ }
@@ -412,6 +433,7 @@ namespace QualityInsights.Patching
             _currentSkill = null;
             _forcedQuality = null;
             _currentWorkerFromRecipe = null;
+            _currentMats = null;
         }
     }
 }

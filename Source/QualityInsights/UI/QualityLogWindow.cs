@@ -1,34 +1,29 @@
+// Source\QualityInsights\UI\QualityLogWindow.cs
 using UnityEngine;
 using Verse;
-using QualityInsights.Logging;
 
 namespace QualityInsights.UI
 {
     public class QualityLogWindow : Window
     {
-        public override Vector2 InitialSize => new(900f, 600f);
-        private Vector2 scroll;
+        private readonly MainTabWindow_QualityLog _tab = new();  // reuse the tab UI
 
-        public QualityLogWindow() { draggable = true; doCloseX = true; }
+        public override Vector2 InitialSize => new(1100f, 720f);
+
+        public QualityLogWindow()
+        {
+            doCloseX = true;
+            draggable = true;
+            resizeable = true;
+
+            absorbInputAroundWindow = false; // <-- let the map receive input outside the window
+            // optional:
+            // closeOnClickedOutside = true; // click outside to close
+        }
 
         public override void DoWindowContents(Rect inRect)
         {
-            var comp = Current.Game.GetComponent<QualityLogComponent>();
-            var rows = comp.entries;
-
-            var outRect = new Rect(inRect.x, inRect.y + 10f, inRect.width, inRect.height - 20f);
-            var viewRect = new Rect(0, 0, outRect.width - 16f, rows.Count * 26f + 10f);
-
-            Widgets.BeginScrollView(outRect, ref scroll, viewRect);
-            float y = 0;
-            foreach (var e in rows)
-            {
-                var r = new Rect(0, y, viewRect.width, 24f);
-                if (Mouse.IsOver(r)) Widgets.DrawHighlight(r);
-                Widgets.Label(r, $"{e.TimeAgoString} | {e.pawnName} ({e.skillDef} {e.skillLevelAtFinish}) ➜ {e.quality} | {e.thingDef}{(string.IsNullOrEmpty(e.stuffDef) ? "" : $"[{e.stuffDef}]")} {(e.inspiredCreativity ? "| Inspired" : "")} {(e.productionSpecialist ? "| ProdSpec" : "")}");
-                y += 26f;
-            }
-            Widgets.EndScrollView();
+            _tab.DoWindowContents(inRect); // same table UI, columns, filters, etc.
         }
     }
 }
