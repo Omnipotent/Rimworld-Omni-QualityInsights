@@ -174,7 +174,7 @@ namespace QualityInsights.Patching
             _currentPawn = worker;
             _currentSkill = ResolveSkillForRecipeOrProduct(recipeDef);
             _hadInspirationAtRoll ??= worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-            _wasProdSpecAtRoll ??= QualityRules.IsProductionSpecialist(worker);
+            _wasProdSpecAtRoll    ??= QualityRules.IsProductionSpecialistFor(worker, _currentSkill ?? ResolveSkillForRecipeOrProduct(recipeDef));
 
             try
             {
@@ -232,7 +232,7 @@ namespace QualityInsights.Patching
                 _currentPawn = worker;
                 _currentSkill = SkillDefOf.Construction;
                 _hadInspirationAtRoll = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-                _wasProdSpecAtRoll = QualityRules.IsProductionSpecialist(worker);
+                _wasProdSpecAtRoll = QualityRules.IsProductionSpecialistFor(worker, SkillDefOf.Construction);
 
                 var built = __instance?.def?.entityDefToBuild as ThingDef;
                 if (built == null || worker == null) return;
@@ -291,7 +291,7 @@ namespace QualityInsights.Patching
             _currentPawn = pawn;
             _currentSkill = relevantSkill;
             _hadInspirationAtRoll = pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-            _wasProdSpecAtRoll = QualityRules.IsProductionSpecialist(pawn);
+            _wasProdSpecAtRoll = QualityRules.IsProductionSpecialistFor(pawn, relevantSkill);
 
             _clearedInspThisRoll = false;
 
@@ -507,7 +507,7 @@ namespace QualityInsights.Patching
                         skillDef = skill?.defName ?? "Unknown",
                         skillLevelAtFinish = worker?.skills?.GetSkill(skill)?.Level ?? -1,
                         inspiredCreativity = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
-                        productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityRules.IsProductionSpecialist(worker)),
+                        productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityRules.IsProductionSpecialistFor(worker, skill)),
                         gameTicks = Find.TickManager.TicksGame,
                         mats = _currentMats != null ? new List<string>(_currentMats) : null,
                     });

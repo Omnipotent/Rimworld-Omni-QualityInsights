@@ -52,6 +52,18 @@ namespace QualityInsights.UI
         private int  cacheKeyBoostMask;   // bit0: inspired, bit1: prodSpec
         private bool cacheKeyCheatFlag;   // whether cheat was enabled when sampled
 
+        // Cache of the *effective* boost state used for the most recent chance calc
+        private bool uiLastInspired;    // true if Inspired_Creativity was applied to the calc
+        private bool uiLastProdSpec;    // true if Production Specialist was applied to the calc
+        private int  uiLastTierBoost;   // 0 / +1 / +2 / +3 from the above
+
+        private void UpdateUiFlagsFromMask(int mask)
+        {
+            uiLastInspired = (mask & 1) != 0;
+            uiLastProdSpec = (mask & 2) != 0;
+            uiLastTierBoost = (uiLastInspired ? 2 : 0) + (uiLastProdSpec ? 1 : 0);
+        }
+
 
         // ===== Helpers ======================================================
 
@@ -208,7 +220,7 @@ namespace QualityInsights.UI
             // compute dynamic bits that affect probabilities
             int boostMaskNow = 0;
             if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity) boostMaskNow |= 1;
-            if (QualityRules.IsProductionSpecialist(pawn)) boostMaskNow |= 2;
+            if (QualityRules.IsProductionSpecialistFor(pawn, skill)) boostMaskNow |= 2;
             bool cheatNow = QualityInsightsMod.Settings.enableCheat;
 
             // only reuse cache if EVERYTHING matches
@@ -218,6 +230,8 @@ namespace QualityInsights.UI
                 && cacheKeyBoostMask == boostMaskNow
                 && cacheKeyCheatFlag == cheatNow)
             {
+                // Make the UI reflect the same mask we used to compute the cached result
+                UpdateUiFlagsFromMask(boostMaskNow);
                 return cachedChances;
             }
 
@@ -253,6 +267,9 @@ namespace QualityInsights.UI
             if ((boostMaskNow & 1) != 0) tierBoost += 2;
             if ((boostMaskNow & 2) != 0) tierBoost += 1;
 
+            // keep UI flags in sync with the exact mask used for this result
+            UpdateUiFlagsFromMask(boostMaskNow);
+
             // --- DIAGNOSTIC START ---
                         bool inspiredProp =
                 pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
@@ -265,7 +282,7 @@ namespace QualityInsights.UI
                     ?.GetValue(ih, null)) is Inspiration cur &&
                 cur.def == InspirationDefOf.Inspired_Creativity;
 
-            bool prodSpecNow = QualityRules.IsProductionSpecialist(pawn);
+            bool prodSpecNow = QualityRules.IsProductionSpecialistFor(pawn, skill);
 
             if (Prefs.DevMode)
             {
@@ -442,7 +459,7 @@ namespace QualityInsights.UI
             //     Log.Message($"[QI] Debug | Pawn={pawn?.LabelShortCap} | Inspired={(pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity)} | ProdSpec={QualityRules.IsProductionSpecialist(pawn)} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName}");
             //     _nextLogTick = Find.TickManager.TicksGame + 120; // every 120 ticks (~2s)
             // }
-            Log.Message($"[QI] Context | Pawn={pawn?.LabelShortCap} | InspiredProp={(pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity)} | ProdSpec={QualityRules.IsProductionSpecialist(pawn)} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName}");
+            Log.Message($"[QI] Context | Pawn={pawn?.LabelShortCap} | InspiredProp={uiLastInspired} | ProdSpec={uiLastProdSpec} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName} | TierBoost={uiLastTierBoost}");
 
             // Show all tiers so the rows add up to 100%
             float total = 0f;
@@ -460,9 +477,9 @@ namespace QualityInsights.UI
             ls.GapLine();
             var level = pawn.skills?.GetSkill(skill)?.Level ?? 0;
             ls.Label($"Pawn: {pawn.LabelShortCap}  |  Skill: {(skill?.skillLabel ?? skill?.label ?? skill?.defName).CapitalizeFirst()} {level}");
-            if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity)
+            if (uiLastInspired)
                 ls.Label("Inspiration: Inspired Creativity (+2 tiers; caps at Legendary)");
-            if (QualityRules.IsProductionSpecialist(pawn))
+            if (uiLastProdSpec)
                 ls.Label("Role: Production Specialist (+1 tier)");
 
             ls.End();
