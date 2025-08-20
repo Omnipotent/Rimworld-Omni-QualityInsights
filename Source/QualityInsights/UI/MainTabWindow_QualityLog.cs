@@ -49,6 +49,27 @@ namespace QualityInsights.UI
         private static float   s_lastTableW = -1f;
         private const float    ColMinPx = 80f;
 
+        // Put near the top-level fields in MainTabWindow_QualityLog
+        internal static List<float> DefaultColFractions() =>
+            new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
+
+        // Invalidate the pixel cache so next repaint rebuilds from Settings.colFractions
+        public static void InvalidateColumnLayout()
+        {
+            s_colPx = Array.Empty<float>();
+            s_lastTableW = -1f;
+            s_dragCol = -1;
+        }
+
+        // Reset to defaults + invalidate + persist
+        public static void ResetColumnsToDefaults()
+        {
+            QualityInsightsMod.Settings.colFractions = DefaultColFractions();
+            QualityInsightsMod.Instance.WriteSettings();
+            InvalidateColumnLayout();
+        }
+
+
         private void EnsureColPx(float tableW)
         {
             int n = ColHeaders.Length;

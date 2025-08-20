@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using RimWorld;
 using UnityEngine;
 using Verse;
+using QualityInsights.UI;
 
 namespace QualityInsights
 {
@@ -62,7 +63,7 @@ namespace QualityInsights
 
             // Font selection
             var font = Settings.logFont;
-            if (ls.ButtonText("QI_Settings_Font".Translate() + $" {font}"))   // was: $"Font: {font}"
+            if (ls.ButtonText("QI_Settings_Font".Translate() + $" {font}"))
             {
                 var opts = new List<FloatMenuOption>
                 {
@@ -76,18 +77,17 @@ namespace QualityInsights
             // Row height scale
             Settings.tableRowScale = Mathf.Round(
                 ls.SliderLabeled(
-                    "QI_Settings_RowHeight".Translate() + $" {Settings.tableRowScale:0.00}", // was: $"Row height scale: ..."
+                    "QI_Settings_RowHeight".Translate() + $" {Settings.tableRowScale:0.00}",
                     Settings.tableRowScale, 0.80f, 1.50f
                 ) * 100f
             ) / 100f;
 
-                        // Reset columns button
-                        if (ls.ButtonText("QI_Settings_ResetColumns".Translate()))
-                        {
-                            Settings.colFractions = new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
-                            Instance.WriteSettings();
-                            Messages.Message("QI_ResetColsMsg".Translate(), MessageTypeDefOf.TaskCompletion, false); // localized message
-                        }
+            // Reset columns button
+            if (ls.ButtonText("QI_Settings_ResetColumns".Translate()))
+            {
+                MainTabWindow_QualityLog.ResetColumnsToDefaults();
+                Messages.Message("QI_ResetColsMsg".Translate(), MessageTypeDefOf.TaskCompletion, false);
+            }
 
             ls.Gap();
             if (ls.ButtonText("QI_Settings_OpenLog".Translate()))
