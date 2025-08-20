@@ -32,7 +32,7 @@ namespace QualityInsights.Patching
         private static readonly Dictionary<int, (int tick, QualityCategory q)> _logGuard
             = new Dictionary<int, (int, QualityCategory)>();
 
-        private const bool DebugLogs = true; // set to false when you're done debugging
+        private static bool DebugLogs => Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs;
         private const bool VerboseSamplingLogs = false;
 
         private static string P(Pawn? p) => p != null ? p.LabelShortCap : "null";
@@ -77,7 +77,7 @@ namespace QualityInsights.Patching
                     mi,
                     prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix)) { priority = Priority.High },
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Postfix)));
-                if (Prefs.DevMode)
+                if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
                     Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (Pawn,SkillDef,...)");
             }
 
@@ -102,7 +102,7 @@ namespace QualityInsights.Patching
                 harmony.Patch(mi,
                     prefix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix_LevelInspired))
                     { priority = Priority.High });
-                if (Prefs.DevMode)
+                if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
                     Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (int,bool,...)");
             }
 
@@ -174,7 +174,7 @@ namespace QualityInsights.Patching
             _currentPawn = worker;
             _currentSkill = ResolveSkillForRecipeOrProduct(recipeDef);
             _hadInspirationAtRoll ??= worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-            _wasProdSpecAtRoll    ??= QualityRules.IsProductionSpecialistFor(worker, _currentSkill ?? ResolveSkillForRecipeOrProduct(recipeDef));
+            _wasProdSpecAtRoll ??= QualityRules.IsProductionSpecialistFor(worker, _currentSkill ?? ResolveSkillForRecipeOrProduct(recipeDef));
 
             try
             {

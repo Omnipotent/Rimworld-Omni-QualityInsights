@@ -24,8 +24,12 @@ namespace QualityInsights
         // public List<float> colFractions = new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
         public List<float> colFractions = new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
 
+        public bool enableDebugLogs = false;
         public override void ExposeData()
         {
+            base.ExposeData();
+            Scribe_Values.Look(ref enableDebugLogs, "QI_enableDebugLogs", false);
+
             Scribe_Values.Look(ref enableLogging, nameof(enableLogging), true);
             Scribe_Values.Look(ref enableLiveChances, nameof(enableLiveChances), true);
             Scribe_Values.Look(ref enableCheat, nameof(enableCheat), false);
@@ -44,17 +48,15 @@ namespace QualityInsights
             //     colFractions = new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
             if (colFractions == null || colFractions.Count != 8)
                 colFractions = new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
-
-            base.ExposeData();
         }
 
         // convenience for UI code
         public GameFont GetLogGameFont() =>
             logFont switch
             {
-                UIFont.Tiny   => GameFont.Tiny,
+                UIFont.Tiny => GameFont.Tiny,
                 UIFont.Medium => GameFont.Medium,
-                _             => GameFont.Small
+                _ => GameFont.Small
             };
     }
 }

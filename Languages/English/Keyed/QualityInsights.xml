@@ -1,12 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LanguageData>
+  <!-- Main Settings -->
   <QI_Settings_Title>QualityInsights settings</QI_Settings_Title>
   <QI_Settings_EnableLogging>Enable quality logging</QI_Settings_EnableLogging>
   <QI_Settings_EnableLiveChances>Enable live chances widget</QI_Settings_EnableLiveChances>
   <QI_Settings_EnableCheat>Enable dev cheat: always highest tier ≥ threshold</QI_Settings_EnableCheat>
   <QI_Settings_MinCheatChance>Threshold (fraction, e.g. 0.02 = 2%)</QI_Settings_MinCheatChance>
   <QI_Settings_Samples>Estimation samples (per pawn/skill)</QI_Settings_Samples>
+
+  <!-- Diagnostics section -->
+  <QI_Settings_Diagnostics>Diagnostics</QI_Settings_Diagnostics>
+  <QI_Settings_EnableDebugLogs>Enable debug logs</QI_Settings_EnableDebugLogs>
+  <QI_Settings_EnableDebugLogs_Tip>Writes detailed [QI] messages to the log when Dev Mode is on. Turn off during normal play.</QI_Settings_EnableDebugLogs_Tip>
+
+  <!-- Quality Log UI section -->
+  <QI_Settings_QualityLogUI>Quality Log UI</QI_Settings_QualityLogUI>
+  <QI_Settings_Font>Font:</QI_Settings_Font>
+  <QI_Settings_RowHeight>Row height scale:</QI_Settings_RowHeight>
+  <QI_Settings_ResetColumns>Reset column widths</QI_Settings_ResetColumns>
+  <QI_Settings_OpenLog>Open quality log</QI_Settings_OpenLog>
+  <QI_ResetColsMsg>QualityInsights: Column widths reset.</QI_ResetColsMsg>
+
+  <!-- Other UI keys you already use elsewhere -->
   <QI_OpenLog>Open quality log</QI_OpenLog>
   <QI_ExportCSV>Export CSV</QI_ExportCSV>
   <QI_LiveOdds>Quality odds</QI_LiveOdds>
+
+  <!-- Localize font menu items -->
+  <QI_Font_Tiny>Tiny</QI_Font_Tiny>
+  <QI_Font_Small>Small</QI_Font_Small>
+  <QI_Font_Medium>Medium</QI_Font_Medium>
 </LanguageData>

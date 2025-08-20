@@ -271,22 +271,23 @@ namespace QualityInsights.UI
             UpdateUiFlagsFromMask(boostMaskNow);
 
             // --- DIAGNOSTIC START ---
-                        bool inspiredProp =
+            bool inspiredProp =
                 pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
 
-            var ih = pawn?.mindState?.inspirationHandler;
-            bool inspiredHandler =
-                ih != null &&
-                (typeof(InspirationHandler)
-                    .GetProperty("CurInspiration", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                    ?.GetValue(ih, null)) is Inspiration cur &&
-                cur.def == InspirationDefOf.Inspired_Creativity;
+            // var ih = pawn?.mindState?.inspirationHandler;
+            // bool inspiredHandler =
+            //     ih != null &&
+            //     (typeof(InspirationHandler)
+            //         .GetProperty("CurInspiration", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            //         ?.GetValue(ih, null)) is Inspiration cur &&
+            //     cur.def == InspirationDefOf.Inspired_Creativity;
 
             bool prodSpecNow = QualityRules.IsProductionSpecialistFor(pawn, skill);
 
-            if (Prefs.DevMode)
+            if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
             {
-                Log.Message($"[QI] Flags | InspiredProp={inspiredProp} | InspiredHandler={inspiredHandler} | ProdSpec={prodSpecNow} | tierBoost={tierBoost} | mask={boostMaskNow}");
+                // Log.Message($"[QI] Flags | InspiredProp={inspiredProp} | InspiredHandler={inspiredHandler} | ProdSpec={prodSpecNow} | tierBoost={tierBoost} | mask={boostMaskNow}");
+                Log.Message($"[QI] Flags | InspiredProp={inspiredProp} | ProdSpec={prodSpecNow} | tierBoost={tierBoost} | mask={boostMaskNow}");
             }
             // --- DIAGNOSTIC END ---
 
@@ -307,7 +308,7 @@ namespace QualityInsights.UI
             }
 
             // (optional) dev log: show both baseline and final so you can eyeball they match the UI
-            if (Prefs.DevMode)
+            if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
             {
                 float sumRaw = 0f;
                 string rawDump = string.Join(", ", TierOrder.Select(q => { raw.TryGetValue(q, out var p); sumRaw += p; return $"{q}:{p:P2}"; }));
@@ -445,7 +446,7 @@ namespace QualityInsights.UI
             // Chance calculation (cached)
             // -------------------------------
             var chances = GetChances(pawn, skill, cachedProductDef);
-            if (Prefs.DevMode)
+            if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
             {
                 float sumUI = 0f;
                 var uiDump = string.Join(", ", TierOrder.Select(q =>
@@ -453,13 +454,8 @@ namespace QualityInsights.UI
                     var v = GetPct(chances, q); sumUI += v; return $"{q}:{v:P2}";
                 }));
                 Log.Message($"[QI] UI WillShow       | {uiDump} | Sum={sumUI:F3}");
+                Log.Message($"[QI] Context | Pawn={pawn?.LabelShortCap} | InspiredProp={uiLastInspired} | ProdSpec={uiLastProdSpec} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName} | TierBoost={uiLastTierBoost}");
             }
-            // if (Find.TickManager.TicksGame >= _nextLogTick)
-            // {
-            //     Log.Message($"[QI] Debug | Pawn={pawn?.LabelShortCap} | Inspired={(pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity)} | ProdSpec={QualityRules.IsProductionSpecialist(pawn)} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName}");
-            //     _nextLogTick = Find.TickManager.TicksGame + 120; // every 120 ticks (~2s)
-            // }
-            Log.Message($"[QI] Context | Pawn={pawn?.LabelShortCap} | InspiredProp={uiLastInspired} | ProdSpec={uiLastProdSpec} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName} | TierBoost={uiLastTierBoost}");
 
             // Show all tiers so the rows add up to 100%
             float total = 0f;

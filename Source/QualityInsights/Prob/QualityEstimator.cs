@@ -21,7 +21,7 @@ namespace QualityInsights.Prob
             for (int i = 0; i < samples; i++)
             {
                 var rolled = QualityUtility.GenerateQualityCreatedByPawn(pawn, skill);
-                var adj = AdjustForInspirationAndRoles(pawn, rolled);
+                var adj = AdjustForInspirationAndRoles(pawn, skill, rolled);
 
                 // Keep the demotion only for boosted/cheat view if your mod forbids Legendary
                 if (adj == QualityCategory.Legendary && !QualityRules.LegendaryAllowedFor(pawn))
@@ -70,17 +70,15 @@ namespace QualityInsights.Prob
 
         // ---- Helpers --------------------------------------------------------
 
-        private static QualityCategory AdjustForInspirationAndRoles(Pawn pawn, QualityCategory baseQ)
+        private static QualityCategory AdjustForInspirationAndRoles(Pawn pawn, SkillDef skill, QualityCategory baseQ)
         {
             int tiers = 0;
             if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity) tiers += 2;
-            if (QualityRules.IsProductionSpecialist(pawn)) tiers += 1;
-
+            if (QualityInsights.Utils.QualityRules.IsProductionSpecialistFor(pawn, skill)) tiers += 1;
             if (tiers == 0) return baseQ;
 
             var elevated = baseQ;
-            for (int i = 0; i < tiers && elevated < QualityCategory.Legendary; i++)
-                elevated += 1;
+            for (int i = 0; i < tiers && elevated < QualityCategory.Legendary; i++) elevated += 1;
             return elevated;
         }
 
