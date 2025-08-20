@@ -14,7 +14,7 @@
     Quality log + live quality odds + optional dev cheat (≥ configurable threshold).
 
     • Quality Log (Table View)
-      – New resizable, sortable table with zebra striping & hover highlight.
+      – New resizable, sortable table with zebra striping and hover highlight.
       – Drag splitters to resize columns; layout persists in Mod Settings.
       – Dynamic last column auto-fills remaining space.
       – Search box + dropdown filters (quality tier, skill).
@@ -22,8 +22,8 @@
       – Duplicate suppression prevents multiple entries for the same item.
 
     • Live Quality Odds Gizmo
-      – Appears on work tables; pick a pawn & recipe to see full tier odds (Awful → Legendary).
-      – Uses the game’s actual roll function for accurate, mod-friendly probabilities.
+      – Appears on work tables; pick a pawn and recipe to see full tier odds (Awful → Legendary).
+      – Uses the games actual roll function for accurate, mod-friendly probabilities.
       – Correctly resolves skill (Construction/Artistic/Crafting or recipe.workSkill).
       – Handles inspirations and roles (Inspired Creativity, Production Specialist).
 
@@ -35,7 +35,7 @@
       – Forces final quality ≥ the lowest tier with chance ≥ threshold.
       – Legendary still requires a legal bump (Inspiration/Production Specialist).
 
-    • UX & Performance
+    • UX and Performance
       – “Settings” button in the log window footer jumps straight to mod settings.
       – Smooth scrolling and lightweight rendering; recalculations only when inputs change.
   </description>

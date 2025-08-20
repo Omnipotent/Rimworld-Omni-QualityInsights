@@ -147,17 +147,10 @@ namespace QualityInsights.UI
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
 
-                // Export / Reload on the far right  // right-aligned header buttons
-                float rx = rect.width - 330f;
+                // Right-aligned header: only Pop out
+                float rx = rect.width - 110f;
                 if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), "Pop out"))
                     Find.WindowStack.Add(new QualityLogWindow());
-                rx += 110f;
-
-                if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), "QI_ExportCSV".Translate()))
-                    ExportCSV(comp);
-                rx += 110f;
-
-                if (Widgets.ButtonText(new Rect(rx, header.y, 110f, headerH), "Reload")) { /* live list */ }
 
 
                 // ===== Apply filters =====
@@ -174,21 +167,30 @@ namespace QualityInsights.UI
 
                 // ===== Body (minus footer area) =====
                 var body = new Rect(0, headerH + 8f, rect.width, rect.height - headerH - 8f - FooterH);
-
                 if (s_viewMode == ViewMode.Table) DrawTable(body, list, rowH, headerH);
                 else DrawLog(body, list, rowH);
 
-                // ===== Footer: compact view toggle =====
+                // ===== Footer =====
                 var footer = new Rect(0, rect.height - FooterH, rect.width, FooterH);
 
-                // right-aligned "Settings" button
-                float sw = 90f;
-                var sbtn = new Rect(footer.xMax - sw - 6f, footer.y + 3f, sw, 28f);
-                if (Widgets.ButtonText(sbtn, "Settings"))
-                {
-                    QualityInsightsMod.OpenSettings();
-                }
+                // Right-aligned cluster: Export, Reload, Settings
+                float bw = 100f, gap = 8f;
+                float xRight = footer.xMax - (bw * 3 + gap * 2) - 6f;
 
+                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "QI_ExportCSV".Translate()))
+                    ExportCSV(comp);
+                xRight += bw + gap;
+
+                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Reload"))
+                {
+                    // Nothing to reload from disk; view is live. Kept for parity/UI.
+                }
+                xRight += bw + gap;
+
+                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Settings"))
+                    QualityInsightsMod.OpenSettings();
+
+                // Left side: view mode toggles
                 float fx = 4f;
                 if (Widgets.ButtonText(new Rect(fx, footer.y + 3f, 80f, 28f), s_viewMode == ViewMode.Table ? "Table ✓" : "Table"))
                     s_viewMode = ViewMode.Table;

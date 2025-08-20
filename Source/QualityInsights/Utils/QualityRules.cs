@@ -40,37 +40,51 @@ namespace QualityInsights.Utils
         {
             try
             {
-                if (pawn?.ideo == null) return false;
-                var ideoTracker = pawn.ideo;
+                var ideoTracker = pawn?.ideo;
+                if (ideoTracker == null) return false;
 
-                // Try pawn.ideo.GetRole(pawn)
-                var getRole = ideoTracker.GetType().GetMethod("GetRole", new[] { typeof(Pawn) });
+                // Try common ways to get the pawn's role without hard binding
                 object roleObj = null;
-                if (getRole != null)
+
+                // 1) Properties on Pawn_IdeoTracker (mods/versions vary: Role / PrimaryRole / role)
+                var roleProp =
+                    ideoTracker.GetType().GetProperty("Role") ??
+                    ideoTracker.GetType().GetProperty("PrimaryRole") ??
+                    ideoTracker.GetType().GetProperty("role");
+                if (roleProp != null)
+                    roleObj = roleProp.GetValue(ideoTracker);
+
+                // 2) Fallback: ideoTracker.Ideo?.GetRole(pawn)
+                if (roleObj == null)
                 {
-                    roleObj = getRole.Invoke(ideoTracker, new object[] { pawn });
-                }
-                else
-                {
-                    // Fallbacks: pawn.ideo.Role or pawn.Ideo?.GetRole(pawn)
-                    var roleProp = ideoTracker.GetType().GetProperty("Role");
-                    roleObj = roleProp?.GetValue(ideoTracker);
-                    if (roleObj == null)
-                    {
-                        var ideoProp = ideoTracker.GetType().GetProperty("Ideo");
-                        var ideo = ideoProp?.GetValue(ideoTracker);
-                        var ideoGetRole = ideo?.GetType().GetMethod("GetRole", new[] { typeof(Pawn) });
-                        roleObj = ideoGetRole?.Invoke(ideo, new object[] { pawn });
-                    }
+                    var ideoProp =
+                        ideoTracker.GetType().GetProperty("Ideo") ??
+                        ideoTracker.GetType().GetProperty("ideo");
+                    var ideo = ideoProp?.GetValue(ideoTracker);
+                    var getRole = ideo?.GetType().GetMethod("GetRole", new[] { typeof(Pawn) });
+                    if (getRole != null)
+                        roleObj = getRole.Invoke(ideo, new object[] { pawn });
                 }
 
                 if (roleObj == null) return false;
-                var defProp = roleObj.GetType().GetProperty("def");
-                var def = defProp?.GetValue(roleObj);
-                var defNameProp = def?.GetType().GetProperty("defName");
-                var defName = defNameProp?.GetValue(def) as string;
-                return !string.IsNullOrEmpty(defName) &&
-                    defName.IndexOf("Production", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                // Read role.def.defName (string) and role.def.roleTags (IEnumerable)
+                var def = roleObj.GetType().GetProperty("def")?.GetValue(roleObj);
+                if (def == null) return false;
+
+                var defName = def.GetType().GetProperty("defName")?.GetValue(def) as string;
+                if (string.Equals(defName, "ProductionSpecialist", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                var tagsObj = def.GetType().GetProperty("roleTags")?.GetValue(def) as System.Collections.IEnumerable;
+                if (tagsObj != null)
+                {
+                    foreach (var t in tagsObj)
+                        if (string.Equals(t?.ToString(), "ProductionSpecialist", StringComparison.OrdinalIgnoreCase))
+                            return true;
+                }
+
+                return false;
             }
             catch { return false; }
         }

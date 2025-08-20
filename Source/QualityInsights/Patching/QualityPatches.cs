@@ -23,22 +23,25 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static bool? _hadInspirationAtRoll;
         [ThreadStatic] private static bool? _wasProdSpecAtRoll;
         [ThreadStatic] internal static bool _suppressInspirationSideEffects;
-
+        [ThreadStatic] private static bool _clearedInspThisRoll;
+        [ThreadStatic] private static object? _savedInspObj;
+        [ThreadStatic] private static FieldInfo? _curInspField;
+        [ThreadStatic] private static PropertyInfo? _curInspProp;
 
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
         private static readonly Dictionary<int, (int tick, QualityCategory q)> _logGuard
             = new Dictionary<int, (int, QualityCategory)>();
 
-
         private const bool DebugLogs = true; // set to false when you're done debugging
+        private const bool VerboseSamplingLogs = false;
 
         private static string P(Pawn? p) => p != null ? p.LabelShortCap : "null";
         private static string S(SkillDef? s) => s != null ? (s.skillLabel ?? s.label ?? s.defName) : "null";
-        // Tracks construction in-flight between CompleteConstruction prefix/postfix
+
         private struct BuildCtx { public Map map; public IntVec3 cell; public ThingDef builtDef; public Pawn worker; }
         private static readonly Dictionary<int, BuildCtx> _buildCtx = new();
         private static readonly HashSet<int> _bumping = new();
-
+        [ThreadStatic] internal static bool _samplingNoInspiration;
 
         static QualityPatches()
         {
@@ -46,30 +49,61 @@ namespace QualityInsights.Patching
 
             PatchAllOverloads(harmony, typeof(InspirationHandler), "EndInspiration",
                 new HarmonyMethod(typeof(QualityPatches), nameof(InspirationGuardPrefix)));
-
             PatchAllOverloads(harmony, typeof(InspirationHandler), "TryStartInspiration",
                 new HarmonyMethod(typeof(QualityPatches), nameof(InspirationGuardPrefix)));
 
-            // 1) Short-circuit quality rolls when cheat applies
-            var genQual = AccessTools.Method(
-                typeof(QualityUtility),
-                "GenerateQualityCreatedByPawn",
-                new Type[] { typeof(Pawn), typeof(SkillDef) });
-            if (genQual != null)
-            {
-                harmony.Patch(
-                    genQual,
-                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix)));
-                QualityRules.Init(genQual);
-            }
-
+            // Capture mats/worker at recipe time (optional but useful)
             var make = AccessTools.Method(typeof(GenRecipe), "MakeRecipeProducts");
             if (make != null)
+                harmony.Patch(make, prefix: new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Prefix)));
+
+            // ---- Patch GenerateQualityCreatedByPawn overloads that start with (Pawn, SkillDef, ...) ----
+            bool IsPawnSkillFirst(MethodInfo m)
+            {
+                var ps = m.GetParameters();
+                return ps.Length >= 2 && ps[0].ParameterType == typeof(Pawn) && ps[1].ParameterType == typeof(SkillDef);
+            }
+
+            var genQualsPawnSkill = typeof(QualityUtility)
+                .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .Where(m => m.Name == "GenerateQualityCreatedByPawn"
+                         && m.ReturnType == typeof(QualityCategory)
+                         && IsPawnSkillFirst(m))
+                .ToArray();
+
+            foreach (var mi in genQualsPawnSkill)
             {
                 harmony.Patch(
-                    make,
-                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Prefix))
-                );
+                    mi,
+                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix)) { priority = Priority.High },
+                    postfix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Postfix)));
+                if (Prefs.DevMode)
+                    Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (Pawn,SkillDef,...)");
+            }
+
+            if (genQualsPawnSkill.Length > 0)
+                QualityRules.Init(genQualsPawnSkill[0]);
+            else
+                Log.Warning("[QualityInsights] No (Pawn, SkillDef) GenerateQualityCreatedByPawn overloads found; sampling/cheat may misbehave.");
+
+            // ---- ALSO patch (int relevantSkillLevel, bool inspired, ...) overloads ----
+            var genQualsLevelInspired = typeof(QualityUtility)
+                .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .Where(m => m.Name == "GenerateQualityCreatedByPawn" && m.ReturnType == typeof(QualityCategory))
+                .Where(m =>
+                {
+                    var ps = m.GetParameters();
+                    return ps.Length >= 2 && ps[0].ParameterType == typeof(int) && ps[1].ParameterType == typeof(bool);
+                })
+                .ToArray();
+
+            foreach (var mi in genQualsLevelInspired)
+            {
+                harmony.Patch(mi,
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix_LevelInspired))
+                    { priority = Priority.High });
+                if (Prefs.DevMode)
+                    Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (int,bool,...)");
             }
 
             // 2) Log final quality (and safety-bump if cheat says higher)
@@ -89,39 +123,28 @@ namespace QualityInsights.Patching
             else
                 Log.Error("[QualityInsights] Could not locate CompQuality.SetQuality (signature changed?).");
 
-            // 2.5) (optional) extra hook: log the crafted product & worker after vanilla post-processing
+            // 2.5) extra hook for diagnostics
             var postProcess = AccessTools.Method(typeof(GenRecipe), "PostProcessProduct");
             if (postProcess != null)
-            {
-                harmony.Patch(
-                    postProcess,
-                    postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterPostProcessProduct)));
-            }
+                harmony.Patch(postProcess, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterPostProcessProduct)));
 
-            // 2.6) Bind construction products to the worker (so we can log/enforce later)
+            // 2.6) bind construction products to worker
             var complete = typeof(Frame)
                 .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .FirstOrDefault(m =>
                 {
                     if (m.Name != "CompleteConstruction") return false;
                     var ps = m.GetParameters();
-                    // allow any signature whose first param is Pawn
                     return ps.Length >= 1 && ps[0].ParameterType == typeof(Pawn);
                 });
-
             if (complete != null)
-            {
-                harmony.Patch(
-                    complete,
-                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Prefix)),
+                harmony.Patch(complete,
+                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Prefix)),
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Postfix)));
-            }
             else
-            {
-                Log.Warning("[QualityInsights] Could not find Frame.CompleteConstruction(Pawn). Construction logs may miss the worker.");
-            }
+                Log.Warning("[QualityInsights] Could not find Frame.CompleteConstruction(Pawn).");
 
-            // 3) Add the Live Odds gizmo to work tables
+            // 3) Live Odds gizmo
             var getGizmos = AccessTools.Method(typeof(Building), nameof(Building.GetGizmos));
             if (getGizmos != null)
                 harmony.Patch(getGizmos, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterGetGizmos)));
@@ -132,9 +155,10 @@ namespace QualityInsights.Patching
         private static void PatchAllOverloads(Harmony harmony, Type type, string methodName, HarmonyMethod prefix)
         {
             var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                            .Where(m => m.Name == methodName);
+                              .Where(m => m.Name == methodName);
             foreach (var mi in methods) harmony.Patch(mi, prefix: prefix);
         }
+
         public static bool InspirationGuardPrefix()
         {
             // When we're sampling, skip vanilla inspiration start/end entirely
@@ -144,15 +168,14 @@ namespace QualityInsights.Patching
         public static void MakeRecipeProducts_Prefix(
             [HarmonyArgument(0)] RecipeDef recipeDef,
             [HarmonyArgument(1)] Pawn worker,
-            [HarmonyArgument(2)] List<Thing> ingredients)   // <— grab actual used ingredients
+            [HarmonyArgument(2)] List<Thing> ingredients)
         {
             _currentWorkerFromRecipe = worker;
-            _currentPawn  = worker;
+            _currentPawn = worker;
             _currentSkill = ResolveSkillForRecipeOrProduct(recipeDef);
             _hadInspirationAtRoll ??= worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-            _wasProdSpecAtRoll    ??= QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker);
+            _wasProdSpecAtRoll ??= QualityRules.IsProductionSpecialist(worker);
 
-            // Collect distinct defNames of used ingredients (steel, component, neutroamine, etc.)
             try
             {
                 _currentMats = ingredients?
@@ -165,7 +188,6 @@ namespace QualityInsights.Patching
             catch { _currentMats = null; }
         }
 
-        // Gizmo injection on work tables
         public static void AfterGetGizmos(Building __instance, ref IEnumerable<Gizmo> __result)
         {
             if (!QualityInsightsMod.Settings.enableLiveChances) return;
@@ -181,57 +203,52 @@ namespace QualityInsights.Patching
             __result = __result.Concat(new[] { cmd });
         }
 
-        // Fires after a recipe product is finalized. Purely for diagnostics,
-        // and useful on some mod stacks where SetQuality happens very late.
         public static void AfterPostProcessProduct(Thing product, RecipeDef recipeDef, Pawn worker)
         {
             try
             {
                 if (product != null && worker != null)
                 {
-                    try { _productToWorker.Remove(product); } catch { /* ignore */ }
+                    try { _productToWorker.Remove(product); } catch { }
                     _productToWorker.Add(product, worker);
                     if (DebugLogs)
                         Log.Message($"[QI] Bound worker {worker.LabelShortCap} -> product {product.LabelCap}");
                 }
 
-                // (Optional debug) Quality is often not assigned yet here; q=n/a is expected.
                 if (DebugLogs)
                 {
                     var qComp = product?.TryGetComp<CompQuality>();
-                    var qStr  = qComp != null ? qComp.Quality.ToString() : "n/a";
+                    var qStr = qComp != null ? qComp.Quality.ToString() : "n/a";
                     Log.Message($"[QI] PostProcessProduct: product={product?.LabelCap} recipe={recipeDef?.defName} worker={worker?.LabelShortCap ?? "null"} q={qStr}");
                 }
             }
-            catch { /* never break gameplay */ }
+            catch { }
         }
 
         public static void CompleteConstruction_Prefix(Frame __instance, Pawn worker)
         {
             try
             {
-                // >>> seed the roll context so AfterSetQuality sees Construction <<<
-                _currentPawn  = worker;                  // who is building right now
-                _currentSkill = SkillDefOf.Construction; // construction always uses Construction
+                _currentPawn = worker;
+                _currentSkill = SkillDefOf.Construction;
                 _hadInspirationAtRoll = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-                _wasProdSpecAtRoll    = QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker);
+                _wasProdSpecAtRoll = QualityRules.IsProductionSpecialist(worker);
 
-                // What will this frame become?
                 var built = __instance?.def?.entityDefToBuild as ThingDef;
                 if (built == null || worker == null) return;
 
                 _buildCtx[__instance.thingIDNumber] = new BuildCtx
                 {
-                    map      = __instance.Map,
-                    cell     = __instance.Position,
+                    map = __instance.Map,
+                    cell = __instance.Position,
                     builtDef = built,
-                    worker   = worker
+                    worker = worker
                 };
 
                 if (DebugLogs)
                     Log.Message($"[QI] Construction prefix: will build {built.defName} at {__instance.Position} by {P(worker)}");
             }
-            catch { /* keep gameplay safe */ }
+            catch { }
         }
 
         public static void CompleteConstruction_Postfix(Frame __instance)
@@ -241,7 +258,6 @@ namespace QualityInsights.Patching
                 if (!_buildCtx.TryGetValue(__instance.thingIDNumber, out var ctx)) return;
                 _buildCtx.Remove(__instance.thingIDNumber);
 
-                // The frame is gone now; find the new building at the same cell
                 var list = ctx.cell.GetThingList(ctx.map);
                 Thing builtThing = null;
                 for (int i = 0; i < list.Count; i++)
@@ -256,46 +272,98 @@ namespace QualityInsights.Patching
                 }
                 if (builtThing == null) return;
 
-                // Cache for AfterSetQuality
                 var target = builtThing;
                 if (target is MinifiedThing m && m.InnerThing != null)
                     target = m.InnerThing;
 
-                try { _productToWorker.Remove(target); } catch { /* ignore */ }
+                try { _productToWorker.Remove(target); } catch { }
                 _productToWorker.Add(target, ctx.worker);
 
                 if (DebugLogs)
                     Log.Message($"[QI] Construction bound: {P(ctx.worker)} -> {target.LabelCap}");
             }
-            catch { /* keep gameplay safe */ }
+            catch { }
         }
-
 
         // Cheat short-circuit before vanilla roll
         public static bool GenerateQuality_Prefix(Pawn pawn, SkillDef relevantSkill, ref QualityCategory __result)
         {
-            _currentSkill = null; // ensure we never carry a stale skill into this roll
             _currentPawn = pawn;
             _currentSkill = relevantSkill;
             _hadInspirationAtRoll = pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-            _wasProdSpecAtRoll    = QualityInsights.Utils.QualityRules.IsProductionSpecialist(pawn);
+            _wasProdSpecAtRoll = QualityRules.IsProductionSpecialist(pawn);
 
-            if (DebugLogs)
-                Log.Message($"[QI] Roll: pawn={P(pawn)} skill={S(relevantSkill)}");
+            _clearedInspThisRoll = false;
 
-            _forcedQuality = TryComputeCheatOverride(pawn, relevantSkill);
-
-            if (DebugLogs)
-                Log.Message($"[QI] Cheat? {(QualityInsightsMod.Settings.enableCheat ? "ON" : "OFF")}  forced={_forcedQuality?.ToString() ?? "null"}");
-
-            if (QualityInsightsMod.Settings.enableCheat && _forcedQuality.HasValue)
+            // During sampling, strip inspiration so baseline is truly baseline
+            if (_samplingNoInspiration && pawn != null)
             {
-                __result = _forcedQuality.Value;
-                if (DebugLogs) Log.Message($"[QI] Short-circuit: forcing quality to {__result}");
-                return false;
+                var ih = pawn.mindState?.inspirationHandler;
+                _savedInspObj = null; _curInspField = null; _curInspProp = null;
+
+                if (ih != null)
+                {
+                    _curInspField = typeof(InspirationHandler)
+                        .GetField("curInspiration", BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (_curInspField != null)
+                    {
+                        _savedInspObj = _curInspField.GetValue(ih);
+                        _curInspField.SetValue(ih, null);
+                        _clearedInspThisRoll = true;
+                    }
+                    else
+                    {
+                        _curInspProp = typeof(InspirationHandler)
+                            .GetProperty("CurInspiration", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (_curInspProp != null && _curInspProp.CanWrite)
+                        {
+                            _savedInspObj = _curInspProp.GetValue(ih, null);
+                            _curInspProp.SetValue(ih, null, null);
+                            _clearedInspThisRoll = true;
+                        }
+                    }
+                }
+
+                if (VerboseSamplingLogs && Prefs.DevMode)
+                    Log.Message("[QI] StripInspiration: sampling baseline (cleared=" + _clearedInspThisRoll + ")");
             }
 
-            return true; // let vanilla compute
+            // Cheat short-circuit (disabled during sampling, but guard anyway)
+            if (QualityInsightsMod.Settings.enableCheat && !_samplingNoInspiration)
+            {
+                var forced = TryComputeCheatOverride(pawn, relevantSkill);
+                if (forced.HasValue)
+                {
+                    __result = forced.Value;
+                    return false; // skip vanilla
+                }
+            }
+
+            return true; // let vanilla compute the roll
+        }
+
+        // Prefix for GenerateQualityCreatedByPawn(int relevantSkillLevel, bool inspired, ...)
+        public static void GenerateQuality_Prefix_LevelInspired([HarmonyArgument(1)] ref bool inspired)
+        {
+            if (_samplingNoInspiration) inspired = false;
+            if (VerboseSamplingLogs && Prefs.DevMode && _samplingNoInspiration)
+                Log.Message("[QI] Force inspired=false on (int,bool) overload");
+        }
+
+        public static void GenerateQuality_Postfix(Pawn pawn)
+        {
+            if (_clearedInspThisRoll && pawn != null)
+            {
+                var ih = pawn.mindState?.inspirationHandler;
+                try
+                {
+                    if (_curInspField != null) _curInspField.SetValue(ih, _savedInspObj);
+                    else if (_curInspProp != null && _curInspProp.CanWrite) _curInspProp.SetValue(ih, _savedInspObj, null);
+                }
+                catch { }
+            }
+            _clearedInspThisRoll = false;
+            _savedInspObj = null; _curInspField = null; _curInspProp = null;
         }
 
         private static QualityCategory? TryComputeCheatOverride(Pawn pawn, SkillDef skill)
@@ -315,46 +383,33 @@ namespace QualityInsights.Patching
             return null;
         }
 
-        // Replace your current ResolveSkillForThing with this one
         private static SkillDef ResolveSkillForThing(Thing thing, SkillDef? fromRoll)
         {
-            // Prefer what was captured in the roll (most accurate)
             if (fromRoll != null) return fromRoll;
-
-            // Buildings are always Construction, even if they also have CompArt
             if (thing?.def?.IsBuildingArtificial == true) return SkillDefOf.Construction;
-
-            // Non-buildings that have CompArt are Artistic (e.g., sculptures)
             if (thing?.TryGetComp<CompArt>() != null) return SkillDefOf.Artistic;
-
-            // Everything else (weapons, apparel, guns, etc.) is Crafting
             return SkillDefOf.Crafting;
         }
 
         private static SkillDef ResolveSkillForRecipeOrProduct(RecipeDef recipe)
         {
-            // 1) Primary: modders should set this; works for vanilla & most mods
             if (recipe?.workSkill != null) return recipe.workSkill;
 
-            // 2) If any product is an art piece, treat as Artistic
             try
             {
                 if (recipe?.products != null && recipe.products.Any(p => p?.thingDef?.HasComp(typeof(CompArt)) == true))
                     return SkillDefOf.Artistic;
             }
-            catch { /* ignore */ }
+            catch { }
 
-            // 3) Soft fallback heuristics (covers odd mods with no workSkill set)
             var label = recipe?.label ?? recipe?.defName ?? string.Empty;
             var l = label.ToLowerInvariant();
             if (l.Contains("sculpt") || l.Contains("art")) return SkillDefOf.Artistic;
-            if (l.Contains("build")  || l.Contains("construct")) return SkillDefOf.Construction;
+            if (l.Contains("build") || l.Contains("construct")) return SkillDefOf.Construction;
 
-            // 4) Last resort: Crafting (covers weapons, apparel, guns, etc.)
             return SkillDefOf.Crafting;
         }
 
-        // Finalization: ensure cheat tier, then log with best-effort pawn resolution
         public static void AfterSetQuality(CompQuality __instance, QualityCategory q)
         {
             var thing = __instance?.parent;
@@ -365,25 +420,20 @@ namespace QualityInsights.Patching
                 return;
             }
 
-            // Use one id for the whole method
             int id = thing.thingIDNumber;
 
-            // Resolve skill first (prefer from roll)
             SkillDef skill = ResolveSkillForThing(thing, _currentSkill);
 
-            // --- resolve the worker (roll → MakeRecipeProducts → cache)
             Pawn worker = _currentPawn ?? _currentWorkerFromRecipe;
             if (worker == null && _productToWorker.TryGetValue(thing, out var cached))
             {
                 worker = cached;
                 if (DebugLogs) Log.Message($"[QI] Resolved worker via cache: {worker.LabelShortCap} for {thing.LabelCap}");
-                try { _productToWorker.Remove(thing); } catch { /* ignore */ }
+                try { _productToWorker.Remove(thing); } catch { }
             }
 
-            // --- CHEAT ENFORCEMENT ---
             QualityCategory? forced = _forcedQuality;
 
-            // If the prefix didn't run (or didn't force), recompute here.
             if (QualityInsightsMod.Settings.enableCheat && forced == null && worker != null)
                 forced = TryComputeCheatOverride(worker, skill);
 
@@ -398,7 +448,7 @@ namespace QualityInsights.Patching
                     var art = thing.TryGetComp<CompArt>();
                     if (art != null && !art.Active && worker != null)
                     {
-                        try { art.InitializeArt(worker); } catch { /* safe */ }
+                        try { art.InitializeArt(worker); } catch { }
                     }
 
                     var ctx = ArtGenerationContext.Colony;
@@ -407,12 +457,11 @@ namespace QualityInsights.Patching
                     if (DebugLogs) Log.Message($"[QI] Bumped {thing.LabelCap} from {q} -> {forced.Value} (ctx={ctx})");
                     q = forced.Value;
                 }
-                catch { /* never break gameplay */ }
+                catch { }
                 finally { _bumping.Remove(id); }
             }
         AfterBump:
 
-            // --- duplicate suppression ---
             int now = Find.TickManager.TicksGame;
 
             if (_logGuard.TryGetValue(id, out var g) && g.q == q && now - g.tick < 120)
@@ -423,7 +472,6 @@ namespace QualityInsights.Patching
             }
             _logGuard[id] = (now, q);
 
-            // Optional light pruning
             if ((now % 5000) == 0 && _logGuard.Count > 512)
             {
                 var cutoff = now - 10000;
@@ -438,9 +486,8 @@ namespace QualityInsights.Patching
             {
                 try
                 {
-                    var comp = QualityInsights.Logging.QualityLogComponent.Ensure(Current.Game);
+                    var comp = QualityLogComponent.Ensure(Current.Game);
 
-                    // (optional) still capture CompIngredients if present
                     var mats = new List<string>();
                     try
                     {
@@ -460,12 +507,12 @@ namespace QualityInsights.Patching
                         skillDef = skill?.defName ?? "Unknown",
                         skillLevelAtFinish = worker?.skills?.GetSkill(skill)?.Level ?? -1,
                         inspiredCreativity = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
-                        productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityInsights.Utils.QualityRules.IsProductionSpecialist(worker)),
+                        productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityRules.IsProductionSpecialist(worker)),
                         gameTicks = Find.TickManager.TicksGame,
                         mats = _currentMats != null ? new List<string>(_currentMats) : null,
                     });
                 }
-                catch { /* never break gameplay */ }
+                catch { }
             }
 
         ClearAndReturn:
@@ -475,7 +522,7 @@ namespace QualityInsights.Patching
             _currentWorkerFromRecipe = null;
             _currentMats = null;
             _hadInspirationAtRoll = null;
-            _wasProdSpecAtRoll    = null;
+            _wasProdSpecAtRoll = null;
         }
     }
 }

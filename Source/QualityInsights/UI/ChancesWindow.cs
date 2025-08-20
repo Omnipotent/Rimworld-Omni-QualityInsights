@@ -16,14 +16,23 @@ namespace QualityInsights.UI
     {
         private static readonly QualityCategory[] TierOrder = new[]
         {
-            QualityCategory.Awful,
-            QualityCategory.Poor,
-            QualityCategory.Normal,
-            QualityCategory.Good,
-            QualityCategory.Excellent,
-            QualityCategory.Masterwork,
+            QualityCategory.Awful, QualityCategory.Poor, QualityCategory.Normal,
+            QualityCategory.Good, QualityCategory.Excellent, QualityCategory.Masterwork,
             QualityCategory.Legendary
         };
+        private static Dictionary<QualityCategory, float> ShiftTiers(
+            Dictionary<QualityCategory, float> src, int tiers)
+        {
+            var dst = TierOrder.ToDictionary(q => q, q => 0f);
+            for (int i = 0; i < TierOrder.Length; i++)
+            {
+                var q = TierOrder[i];
+                if (!src.TryGetValue(q, out var p) || p <= 0f) continue;
+                int j = Math.Min(i + Math.Max(0, tiers), TierOrder.Length - 1);
+                dst[TierOrder[j]] += p;
+            }
+            return dst;
+        }
         private readonly Building_WorkTable table;
 
         // Current selections
@@ -38,8 +47,11 @@ namespace QualityInsights.UI
         private Dictionary<QualityCategory, float>? cachedChances;
         private RecipeDef? cacheKeyRecipe;
         private Pawn? cacheKeyPawn;
-
         private Vector2 scroll;
+        private int _nextLogTick;
+        private int  cacheKeyBoostMask;   // bit0: inspired, bit1: prodSpec
+        private bool cacheKeyCheatFlag;   // whether cheat was enabled when sampled
+
 
         // ===== Helpers ======================================================
 
@@ -97,8 +109,7 @@ namespace QualityInsights.UI
             return false;
         }
 
-
-        private static bool ThingDefHasCompQuality(ThingDef def)
+        private static bool ThingDefHasCompQuality(ThingDef? def)
         {
             if (def == null || def.comps == null) return false;
             for (int i = 0; i < def.comps.Count; i++)
@@ -194,48 +205,110 @@ namespace QualityInsights.UI
 
         private Dictionary<QualityCategory, float> GetChances(Pawn pawn, SkillDef skill, ThingDef? product)
         {
-            // Return cached if inputs unchanged
-            if (cachedChances != null && cacheKeyPawn == pawn && cacheKeyRecipe == selectedRecipe)
+            // compute dynamic bits that affect probabilities
+            int boostMaskNow = 0;
+            if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity) boostMaskNow |= 1;
+            if (QualityRules.IsProductionSpecialist(pawn)) boostMaskNow |= 2;
+            bool cheatNow = QualityInsightsMod.Settings.enableCheat;
+
+            // only reuse cache if EVERYTHING matches
+            if (cachedChances != null
+                && cacheKeyPawn == pawn
+                && cacheKeyRecipe == selectedRecipe
+                && cacheKeyBoostMask == boostMaskNow
+                && cacheKeyCheatFlag == cheatNow)
+            {
                 return cachedChances;
+            }
 
-            var samples = QualityInsightsMod.Settings.estimationSamples;
-            samples = Math.Max(100, samples);
-
-            // Stable-ish seed so the numbers don't dance each frame
+            var samples = Math.Max(100, QualityInsightsMod.Settings.estimationSamples);
             var seed = Gen.HashCombineInt(pawn.thingIDNumber,
                         Gen.HashCombineInt(selectedRecipe?.shortHash ?? 0, samples));
 
-            // --- SILENT snapshot of inspiration (no messages, no timer touch)
-            var ih = pawn?.mindState?.inspirationHandler;
-            object savedInspirationObj = null;   // RimWorld.Inspiration instance (private)
-            FieldInfo curField = null;
-            if (ih != null)
-            {
-                curField = typeof(InspirationHandler)
-                    .GetField("curInspiration", BindingFlags.Instance | BindingFlags.NonPublic);
-                if (curField != null)
-                    savedInspirationObj = curField.GetValue(ih);
-            }
-
+            bool cheatWasEnabled = QualityInsightsMod.Settings.enableCheat;
             Dictionary<QualityCategory, float> raw;
 
-            QualityPatches._suppressInspirationSideEffects = true;
+            QualityPatches._suppressInspirationSideEffects = true; // keep vanilla messages off
+            QualityInsightsMod.Settings.enableCheat = false;       // never let cheat bias sampling
+            QualityPatches._samplingNoInspiration = true;          // <-- NEW: per-roll strip
+
             Rand.PushState(seed);
             try
             {
-                raw = product != null
-                    ? QualityEstimator.EstimateChances(pawn, skill, product, samples)
-                    : QualityEstimator.EstimateChances(pawn, skill, samples);
+                // (no need for InspirationScope now)
+                raw = (product != null)
+                    ? QualityEstimator.EstimateBaseline(pawn, skill, product, samples)
+                    : QualityEstimator.EstimateBaseline(pawn, skill, samples);
             }
             finally
             {
                 Rand.PopState();
+                QualityPatches._samplingNoInspiration = false;      // <-- restore
+                QualityInsightsMod.Settings.enableCheat = cheatWasEnabled;
                 QualityPatches._suppressInspirationSideEffects = false;
             }
 
-            cachedChances = raw;
+            // apply post-sample tier boost
+            int tierBoost = 0;
+            if ((boostMaskNow & 1) != 0) tierBoost += 2;
+            if ((boostMaskNow & 2) != 0) tierBoost += 1;
+
+            // --- DIAGNOSTIC START ---
+                        bool inspiredProp =
+                pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
+
+            var ih = pawn?.mindState?.inspirationHandler;
+            bool inspiredHandler =
+                ih != null &&
+                (typeof(InspirationHandler)
+                    .GetProperty("CurInspiration", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    ?.GetValue(ih, null)) is Inspiration cur &&
+                cur.def == InspirationDefOf.Inspired_Creativity;
+
+            bool prodSpecNow = QualityRules.IsProductionSpecialist(pawn);
+
+            if (Prefs.DevMode)
+            {
+                Log.Message($"[QI] Flags | InspiredProp={inspiredProp} | InspiredHandler={inspiredHandler} | ProdSpec={prodSpecNow} | tierBoost={tierBoost} | mask={boostMaskNow}");
+            }
+            // --- DIAGNOSTIC END ---
+
+            // shift once according to the *current* state
+            var finalChances = tierBoost > 0 ? ShiftTiers(raw, tierBoost) : raw;
+
+            // Cap legendary if not allowed: move its mass into Masterwork
+            if (!QualityRules.LegendaryAllowedFor(pawn)
+                && finalChances.TryGetValue(QualityCategory.Legendary, out var l)
+                && l > 0f)
+            {
+                if (finalChances.TryGetValue(QualityCategory.Masterwork, out var m))
+                    finalChances[QualityCategory.Masterwork] = m + l;
+                else
+                    finalChances[QualityCategory.Masterwork] = l;
+
+                finalChances[QualityCategory.Legendary] = 0f;
+            }
+
+            // (optional) dev log: show both baseline and final so you can eyeball they match the UI
+            if (Prefs.DevMode)
+            {
+                float sumRaw = 0f;
+                string rawDump = string.Join(", ", TierOrder.Select(q => { raw.TryGetValue(q, out var p); sumRaw += p; return $"{q}:{p:P2}"; }));
+
+                float sumFinal = 0f;
+                string finalDump = string.Join(", ", TierOrder.Select(q => { finalChances.TryGetValue(q, out var p); sumFinal += p; return $"{q}:{p:P2}"; }));
+
+                Log.Message($"[QI] Raw (no boosts)   | {rawDump}   | Sum={sumRaw:F3} | TierBoost={tierBoost}");
+                Log.Message($"[QI] Final (with boost)| {finalDump} | Sum={sumFinal:F3}");
+            }
+
+            // update cache keys
+            cachedChances = finalChances;
             cacheKeyPawn = pawn;
             cacheKeyRecipe = selectedRecipe;
+            cacheKeyBoostMask = boostMaskNow;
+            cacheKeyCheatFlag = cheatNow;
+
             return cachedChances!;
         }
 
@@ -355,6 +428,21 @@ namespace QualityInsights.UI
             // Chance calculation (cached)
             // -------------------------------
             var chances = GetChances(pawn, skill, cachedProductDef);
+            if (Prefs.DevMode)
+            {
+                float sumUI = 0f;
+                var uiDump = string.Join(", ", TierOrder.Select(q =>
+                {
+                    var v = GetPct(chances, q); sumUI += v; return $"{q}:{v:P2}";
+                }));
+                Log.Message($"[QI] UI WillShow       | {uiDump} | Sum={sumUI:F3}");
+            }
+            // if (Find.TickManager.TicksGame >= _nextLogTick)
+            // {
+            //     Log.Message($"[QI] Debug | Pawn={pawn?.LabelShortCap} | Inspired={(pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity)} | ProdSpec={QualityRules.IsProductionSpecialist(pawn)} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName}");
+            //     _nextLogTick = Find.TickManager.TicksGame + 120; // every 120 ticks (~2s)
+            // }
+            Log.Message($"[QI] Context | Pawn={pawn?.LabelShortCap} | InspiredProp={(pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity)} | ProdSpec={QualityRules.IsProductionSpecialist(pawn)} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName}");
 
             // Show all tiers so the rows add up to 100%
             float total = 0f;
@@ -373,7 +461,7 @@ namespace QualityInsights.UI
             var level = pawn.skills?.GetSkill(skill)?.Level ?? 0;
             ls.Label($"Pawn: {pawn.LabelShortCap}  |  Skill: {(skill?.skillLabel ?? skill?.label ?? skill?.defName).CapitalizeFirst()} {level}");
             if (pawn.InspirationDef == InspirationDefOf.Inspired_Creativity)
-                ls.Label("Inspiration: Inspired Creativity (+2 tiers; Legendary guaranteed if any chance > 0)");
+                ls.Label("Inspiration: Inspired Creativity (+2 tiers; caps at Legendary)");
             if (QualityRules.IsProductionSpecialist(pawn))
                 ls.Label("Role: Production Specialist (+1 tier)");
 
