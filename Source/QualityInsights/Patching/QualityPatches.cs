@@ -29,6 +29,8 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static PropertyInfo? _curInspProp;
 
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
+        // Mats are stored by thingIDNumber so they survive wrapping/replacement.
+        private static readonly Dictionary<int, List<string>> _matsById = new();
         private static readonly Dictionary<int, (int tick, QualityCategory q)> _logGuard
             = new Dictionary<int, (int, QualityCategory)>();
 
@@ -55,7 +57,13 @@ namespace QualityInsights.Patching
             // Capture mats/worker at recipe time (optional but useful)
             var make = AccessTools.Method(typeof(GenRecipe), "MakeRecipeProducts");
             if (make != null)
-                harmony.Patch(make, prefix: new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Prefix)));
+            {
+                harmony.Patch(
+                    make,
+                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Prefix)),
+                    postfix: new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Postfix))
+                );
+            }
 
             // ---- Patch GenerateQualityCreatedByPawn overloads that start with (Pawn, SkillDef, ...) ----
             bool IsPawnSkillFirst(MethodInfo m)
@@ -123,10 +131,11 @@ namespace QualityInsights.Patching
             else
                 Log.Error("[QualityInsights] Could not locate CompQuality.SetQuality (signature changed?).");
 
-            // 2.5) extra hook for diagnostics
+            // 2.5) capture product/pawn/materials right before quality is set
             var postProcess = AccessTools.Method(typeof(GenRecipe), "PostProcessProduct");
             if (postProcess != null)
-                harmony.Patch(postProcess, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterPostProcessProduct)));
+                harmony.Patch(postProcess,
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(PostProcessProduct_Prefix)));
 
             // 2.6) bind construction products to worker
             var complete = typeof(Frame)
@@ -188,6 +197,40 @@ namespace QualityInsights.Patching
             catch { _currentMats = null; }
         }
 
+        public static void MakeRecipeProducts_Postfix()
+        {
+            // IMPORTANT:
+            // Do NOT clear _currentMats here. MakeRecipeProducts is an iterator,
+            // and PostProcessProduct runs later during enumeration.
+            // We clear transient state after logging in AfterSetQuality.
+            // (Intentionally left blank.)
+        }
+
+        private static List<string>? GetMaterialsFor(Thing thing)
+        {
+            // Prefer live CompIngredients
+            try
+            {
+                var compIng = thing?.TryGetComp<CompIngredients>();
+                if (compIng?.ingredients != null && compIng.ingredients.Count > 0)
+                    return compIng.ingredients.Where(d => d != null).Select(d => d.defName).Distinct().ToList();
+            }
+            catch { }
+
+            if (thing == null) return null;
+
+            // Cache (by id, for both normal and minified cases)
+            if (_matsById.TryGetValue(thing.thingIDNumber, out var mats))
+                return new List<string>(mats);
+
+            if (thing is MinifiedThing m && m.InnerThing != null &&
+                _matsById.TryGetValue(m.InnerThing.thingIDNumber, out var matsInner))
+                return new List<string>(matsInner);
+
+            // For construction we rely on Stuff; don't synthesize mats.
+            return null;
+        }
+
         public static void AfterGetGizmos(Building __instance, ref IEnumerable<Gizmo> __result)
         {
             if (!QualityInsightsMod.Settings.enableLiveChances) return;
@@ -203,26 +246,43 @@ namespace QualityInsights.Patching
             __result = __result.Concat(new[] { cmd });
         }
 
-        public static void AfterPostProcessProduct(Thing product, RecipeDef recipeDef, Pawn worker)
+        // Bind worker + materials just before product is finalized.
+        public static void PostProcessProduct_Prefix(Thing product, RecipeDef recipeDef, Pawn worker)
         {
             try
             {
-                if (product != null && worker != null)
+                if (product == null) return;
+
+                void BindWorker(Thing t)
                 {
-                    try { _productToWorker.Remove(product); } catch { }
-                    _productToWorker.Add(product, worker);
-                    if (DebugLogs)
-                        Log.Message($"[QI] Bound worker {worker.LabelShortCap} -> product {product.LabelCap}");
+                    if (t == null) return;
+                    try { _productToWorker.Remove(t); } catch { }
+                    _productToWorker.Add(t, worker);
+                }
+
+                void BindMatsById(Thing t)
+                {
+                    if (t == null || _currentMats == null || _currentMats.Count == 0) return;
+                    _matsById[t.thingIDNumber] = new List<string>(_currentMats);
+                }
+
+                BindWorker(product);
+                BindMatsById(product);
+
+                if (product is MinifiedThing min && min.InnerThing != null)
+                {
+                    BindWorker(min.InnerThing);
+                    BindMatsById(min.InnerThing);
                 }
 
                 if (DebugLogs)
-                {
-                    var qComp = product?.TryGetComp<CompQuality>();
-                    var qStr = qComp != null ? qComp.Quality.ToString() : "n/a";
-                    Log.Message($"[QI] PostProcessProduct: product={product?.LabelCap} recipe={recipeDef?.defName} worker={worker?.LabelShortCap ?? "null"} q={qStr}");
-                }
+                    Log.Message("[QI] Bound worker + mats for id(s): " +
+                        (product is MinifiedThing mm && mm.InnerThing != null
+                            ? $"{product.thingIDNumber}/{mm.InnerThing.thingIDNumber}"
+                            : product.thingIDNumber.ToString()) +
+                        " mats=[" + string.Join(",", _currentMats ?? new List<string>()) + "]");
             }
-            catch { }
+            catch { /* never break bills */ }
         }
 
         public static void CompleteConstruction_Prefix(Frame __instance, Pawn worker)
@@ -420,6 +480,19 @@ namespace QualityInsights.Patching
                 return;
             }
 
+            // Local helper so we always clean caches even on early exits.
+            void CleanupCaches(Thing t)
+            {
+                try { _productToWorker.Remove(t); } catch { }
+                _matsById.Remove(t.thingIDNumber);
+
+                if (t is MinifiedThing mm && mm.InnerThing != null)
+                {
+                    try { _productToWorker.Remove(mm.InnerThing); } catch { }
+                    _matsById.Remove(mm.InnerThing.thingIDNumber);
+                }
+            }
+
             int id = thing.thingIDNumber;
 
             SkillDef skill = ResolveSkillForThing(thing, _currentSkill);
@@ -430,6 +503,13 @@ namespace QualityInsights.Patching
                 worker = cached;
                 if (DebugLogs) Log.Message($"[QI] Resolved worker via cache: {worker.LabelShortCap} for {thing.LabelCap}");
                 try { _productToWorker.Remove(thing); } catch { }
+            }
+
+            // Ignore non-player / unknown workers (filters worldgen, traders, raids, etc.)
+            if (worker == null || worker.Faction != Faction.OfPlayer)
+            {
+                CleanupCaches(thing);
+                goto ClearAndReturn;
             }
 
             QualityCategory? forced = _forcedQuality;
@@ -468,6 +548,7 @@ namespace QualityInsights.Patching
             {
                 if (DebugLogs)
                     Log.Message($"[QI] Suppressed duplicate log for {thing.LabelCap} (q={q}) within {now - g.tick} ticks.");
+                CleanupCaches(thing);
                 goto ClearAndReturn;
             }
             _logGuard[id] = (now, q);
@@ -488,39 +569,39 @@ namespace QualityInsights.Patching
                 {
                     var comp = QualityLogComponent.Ensure(Current.Game);
 
-                    var mats = new List<string>();
-                    try
-                    {
-                        var compIng = thing?.TryGetComp<CompIngredients>();
-                        if (compIng?.ingredients != null)
-                            foreach (var d in compIng.ingredients)
-                                if (d != null) mats.Add(d.defName);
-                    }
-                    catch { }
+                    var matsForLog = GetMaterialsFor(thing);
+
+                    if (DebugLogs)
+                        Log.Message("[QI] MatsForLog=" + (matsForLog != null ? string.Join(",", matsForLog) : "<none>")
+                                    + " stuff=" + (thing.Stuff?.defName ?? "<none>")
+                                    + " for " + thing.LabelCap);
 
                     comp.Add(new QualityLogEntry
                     {
                         thingDef = thing.def?.defName ?? "Unknown",
                         stuffDef = thing.Stuff?.defName,
-                        quality = q,
+                        quality  = q,
                         pawnName = worker?.Name?.ToStringShort ?? worker?.LabelShort ?? "Unknown",
                         skillDef = skill?.defName ?? "Unknown",
-                        skillLevelAtFinish = worker?.skills?.GetSkill(skill)?.Level ?? -1,
-                        inspiredCreativity = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
+                        skillLevelAtFinish   = worker?.skills?.GetSkill(skill)?.Level ?? -1,
+                        inspiredCreativity   = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
                         productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityRules.IsProductionSpecialistFor(worker, skill)),
                         gameTicks = Find.TickManager.TicksGame,
-                        mats = _currentMats != null ? new List<string>(_currentMats) : null,
+                        mats      = matsForLog
                     });
                 }
                 catch { }
             }
+
+            // Always drop caches for this thing (and inner thing) after we’ve attempted to log it.
+            CleanupCaches(thing);
 
         ClearAndReturn:
             _currentPawn = null;
             _currentSkill = null;
             _forcedQuality = null;
             _currentWorkerFromRecipe = null;
-            _currentMats = null;
+            // _currentMats = null;
             _hadInspirationAtRoll = null;
             _wasProdSpecAtRoll = null;
         }

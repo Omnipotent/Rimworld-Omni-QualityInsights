@@ -30,9 +30,7 @@ namespace QualityInsights
         public int  maxExportFiles    = 20; // keep last N
         public int  maxExportFolderMB = 50; // or cap by size
 
-
         // persistent table column fractions (must sum ~1) — store as List<float> for scribing
-        // public List<float> colFractions = new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
         public List<float> colFractions = new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
 
         public bool enableDebugLogs = false;
@@ -60,8 +58,6 @@ namespace QualityInsights
             Scribe_Collections.Look(ref colFractions, nameof(colFractions), LookMode.Value);
 
             // safety: if list wasn't saved or size changed, restore defaults
-            // if (colFractions == null || colFractions.Count != 8)
-            //     colFractions = new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
             if (colFractions == null || colFractions.Count != 8)
                 colFractions = new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
         }
