@@ -50,6 +50,7 @@ namespace QualityInsights.Patching
         private static readonly HashSet<int> _bumping = new();
         [ThreadStatic] internal static bool _samplingNoInspiration;
         [ThreadStatic] private static int _afterSetQDepth;
+        [ThreadStatic] private static bool _inCheatEval;
 
         static QualityPatches()
         {
@@ -188,11 +189,11 @@ namespace QualityInsights.Patching
             return false;
         }
 
-        public static bool InspirationGuardPrefix()
-        {
-            // When we're sampling, skip vanilla inspiration start/end entirely
-            return !_suppressInspirationSideEffects;  // false => Harmony prevents original method
-        }
+         public static bool InspirationGuardPrefix()
+         {
+             // When we're sampling, skip vanilla inspiration start/end entirely
+             return !_suppressInspirationSideEffects;  // false => Harmony blocks original
+         }
 
         public static void MakeRecipeProducts_Prefix(
             [HarmonyArgument(0)] RecipeDef recipeDef,
@@ -420,6 +421,7 @@ namespace QualityInsights.Patching
             {
                 var ih = pawn.mindState?.inspirationHandler;
                 _savedInspObj = null; _curInspField = null; _curInspProp = null;
+                _clearedInspThisRoll = false;
 
                 if (ih != null)
                 {
@@ -443,23 +445,22 @@ namespace QualityInsights.Patching
                         }
                     }
                 }
-
-                if (VerboseSamplingLogs && Prefs.DevMode)
-                    Log.Message("[QI] StripInspiration: sampling baseline (cleared=" + _clearedInspThisRoll + ")");
             }
 
-            // Cheat short-circuit (disabled during sampling, but guard anyway)
+
+            // Cheat short-circuit (now safe—won't recurse)
             if (QualityInsightsMod.Settings.enableCheat && !_samplingNoInspiration)
             {
                 var forced = TryComputeCheatOverride(pawn, relevantSkill);
                 if (forced.HasValue)
                 {
+                    _forcedQuality = forced;      // <— see #3 (perf tweak)
                     __result = forced.Value;
                     return false; // skip vanilla
                 }
             }
 
-            return true; // let vanilla compute the roll
+            return true; // vanilla roll
         }
 
         // Prefix for GenerateQualityCreatedByPawn(int relevantSkillLevel, bool inspired, ...)
@@ -489,9 +490,30 @@ namespace QualityInsights.Patching
         private static QualityCategory? TryComputeCheatOverride(Pawn pawn, SkillDef skill)
         {
             var s = QualityInsightsMod.Settings;
-            if (!s.enableCheat) return null;
+            if (!s.enableCheat || pawn == null || skill == null) return null;
 
-            var chances = QualityEstimator.EstimateChances(pawn, skill, s.estimationSamples);
+            // Prevent recursion if we re-enter through our own prefix
+            if (_inCheatEval) return null;
+
+            Dictionary<QualityCategory, float> chances;
+            bool cheatWas = s.enableCheat;
+
+            _inCheatEval = true;
+            _suppressInspirationSideEffects = true; // no vanilla insp side-effects
+            _samplingNoInspiration = true;          // compute true baseline
+            try
+            {
+                s.enableCheat = false; // **critical**: never sample with cheat on
+                chances = QualityEstimator.EstimateChances(pawn, skill, s.estimationSamples);
+            }
+            finally
+            {
+                s.enableCheat = cheatWas;
+                _samplingNoInspiration = false;
+                _suppressInspirationSideEffects = false;
+                _inCheatEval = false;
+            }
+
             foreach (var qc in Enum.GetValues(typeof(QualityCategory)).Cast<QualityCategory>().OrderByDescending(q => q))
             {
                 if (chances.TryGetValue(qc, out var p) && p + 1e-6f >= s.minCheatChance)
@@ -502,6 +524,7 @@ namespace QualityInsights.Patching
             }
             return null;
         }
+
 
         private static SkillDef ResolveSkillForThing(Thing thing, SkillDef? fromRoll)
         {
@@ -582,9 +605,14 @@ namespace QualityInsights.Patching
                     goto ClearAndReturn;
                 }
 
+                // If the prefix already forced a quality for this roll, reuse it; otherwise compute once.
                 QualityCategory? forced = _forcedQuality;
                 if (QualityInsightsMod.Settings.enableCheat && forced == null && worker != null)
                     forced = TryComputeCheatOverride(worker, skill);
+
+                // Clear the thread-static so we never carry it past this item
+                _forcedQuality = null;
+
 
                 // Safe "bump" (single hop). If something re-enters, we bail early via _bumping + depth guard.
                 if (QualityInsightsMod.Settings.enableCheat && forced.HasValue && q < forced.Value)

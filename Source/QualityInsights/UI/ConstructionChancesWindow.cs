@@ -49,10 +49,13 @@ namespace QualityInsights.UI
         private bool uiLastProdSpec;
         private int  uiLastTierBoost;
 
+        [ThreadStatic] private static bool _inCheatEval;
+
+
         private void UpdateUiFlagsFromMask(int mask)
         {
-            uiLastInspired  = (mask & 1) != 0;
-            uiLastProdSpec  = (mask & 2) != 0;
+            uiLastInspired = (mask & 1) != 0;
+            uiLastProdSpec = (mask & 2) != 0;
             uiLastTierBoost = (uiLastInspired ? 2 : 0) + (uiLastProdSpec ? 1 : 0);
         }
 
