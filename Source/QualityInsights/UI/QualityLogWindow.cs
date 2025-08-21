@@ -10,7 +10,6 @@ namespace QualityInsights.UI
 
         // custom window-drag state (we’ll manage movement ourselves)
         private bool _draggingWindow;
-        private Vector2 _dragStartMouse;
         private Vector2 _dragStartMouseScreen;
         private Vector2 _dragStartWinPos;
 
@@ -28,6 +27,19 @@ namespace QualityInsights.UI
             resizeable = true;
             absorbInputAroundWindow = _draggingWindow;
             preventCameraMotion = _draggingWindow;
+        }
+
+        // --- Register/unregister so the main tab knows whether a floating window is open ---
+        public override void PreOpen()
+        {
+            base.PreOpen();
+            MainTabWindow_QualityLog.RegisterFloating(this);
+        }
+
+        public override void PostClose()
+        {
+            base.PostClose();
+            MainTabWindow_QualityLog.UnregisterFloating(this);
         }
 
         public override void DoWindowContents(Rect inRect)
@@ -71,7 +83,6 @@ namespace QualityInsights.UI
                     ev.Use();
                 }
             }
-
 
             // content group unchanged...
             var content = new Rect(inRect.x, inRect.y + DragBarH, inRect.width, inRect.height - DragBarH);

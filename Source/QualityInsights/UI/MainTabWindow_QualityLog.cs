@@ -13,6 +13,42 @@ namespace QualityInsights.UI
 {
     public class MainTabWindow_QualityLog : MainTabWindow
     {
+        // ===== POP/DOCK TOGGLE STATE =====
+        private static QualityLogWindow s_floatingWin; // currently popped-out window (if any)
+
+        private static bool FloatingOpen =>
+            s_floatingWin != null && Find.WindowStack != null && Find.WindowStack.IsOpen(s_floatingWin);
+
+        // Open a floating window and close the docked tab (this instance).
+        private void PopOutAndCloseDock()
+        {
+            if (FloatingOpen) return;
+            s_floatingWin = new QualityLogWindow();
+            Find.WindowStack.Add(s_floatingWin);
+            // Close this docked tab window so we never have both at once.
+            Close(doCloseSound: false);
+        }
+
+        // Close the floating window (if any) and open the docked tab.
+        private static void DockAndClosePopOut()
+        {
+            if (s_floatingWin != null)
+            {
+                try { s_floatingWin.Close(doCloseSound: false); } catch { }
+                s_floatingWin = null;
+            }
+            // Find our MainButtonDef by tabWindowClass so we don't rely on a defName.
+            var def = DefDatabase<MainButtonDef>.AllDefsListForReading
+                .FirstOrDefault(d => d?.tabWindowClass == typeof(MainTabWindow_QualityLog));
+            if (def != null)
+                Find.MainTabsRoot.SetCurrentTab(def, playSound: true);
+        }
+
+        // Called by QualityLogWindow when the floating window opens/closes.
+        internal static void RegisterFloating(QualityLogWindow w)   => s_floatingWin = w;
+        internal static void UnregisterFloating(QualityLogWindow w) { if (s_floatingWin == w) s_floatingWin = null; }
+        internal static void DockFromFloating() => DockAndClosePopOut();
+
         private enum ViewMode { Log, Table }
         private static ViewMode s_viewMode = ViewMode.Table;   // remembers last used while game runs
         private static int  s_sortCol = 0;                     // table sort column
@@ -51,10 +87,14 @@ namespace QualityInsights.UI
         private int _seenLayoutGen = -1;
 
         // Column layout helpers
-        // NEW: default fractions now include an extra "RL" column after "Time"
+        // default fractions include an extra "RL" column after "Time"
         internal static List<float> DefaultColFractions() =>
             new() { 0.10f, 0.10f, 0.16f, 0.12f, 0.06f, 0.12f, 0.20f, 0.10f, 0.04f };
         public static void InvalidateColumnLayout() { s_layoutGen++; }
+
+        // Fractions that produced the current _colPx cache.
+        // Lets us auto-refresh if Settings.colFractions changes externally (e.g. via Settings UI).
+        private float[] _appliedFracs = Array.Empty<float>();
 
         // --- CSV helpers ---
         private static string s_lastExportPath = string.Empty;
@@ -98,7 +138,7 @@ namespace QualityInsights.UI
                     }
                     return;
                 }
-
+                // --- macOS ---
                 if (plat == RuntimePlatform.OSXPlayer || plat == RuntimePlatform.OSXEditor)
                 {
                     if (File.Exists(targetPath))
@@ -137,24 +177,43 @@ namespace QualityInsights.UI
             if (frac == null || frac.Count != n)
             {
                 frac = QualityInsightsMod.Settings.colFractions = DefaultColFractions();
-                InvalidateColumnLayout();
+                InvalidateColumnLayout(); // keep old behavior
             }
 
-            if (_seenLayoutGen != s_layoutGen)
+            // If settings changed elsewhere, rebuild our cache
+            bool layoutBumped = (_seenLayoutGen != s_layoutGen);
+            if (layoutBumped)
             {
                 _colPx = Array.Empty<float>();
                 _lastTableW = -1f;
                 _seenLayoutGen = s_layoutGen;
+                _appliedFracs = Array.Empty<float>();
             }
 
-            if (_colPx.Length != n - 1 || Mathf.Abs(_lastTableW - tableW) > 0.5f || _colPx.All(w => w <= 0f))
+            // Detect fraction changes even without a layout-gen bump
+            bool fracsChanged = _appliedFracs.Length != n;
+            if (!fracsChanged)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    if (Mathf.Abs(frac[i] - _appliedFracs[i]) > 0.0001f) { fracsChanged = true; break; }
+                }
+            }
+
+            // Recompute px cache if size changed, cache missing, or fractions changed
+            if (fracsChanged || _colPx.Length != n - 1 || Mathf.Abs(_lastTableW - tableW) > 0.5f || _colPx.All(w => w <= 0f))
             {
                 _colPx = new float[n - 1];
                 for (int i = 0; i < n - 1; i++)
                     _colPx[i] = Mathf.Max(ColMinPx, tableW * frac[i]);
+
                 _lastTableW = tableW;
+
+                // remember the exact fractions we applied
+                _appliedFracs = frac.ToArray();
             }
         }
+
 
         public override Vector2 RequestedTabSize
         {
@@ -191,7 +250,7 @@ namespace QualityInsights.UI
                 var rows = comp.entries.AsEnumerable();
                 double nowPlay = comp.PlaySecondsAccum; // snapshot once per repaint
 
-                // ===== Header (filters + export) =====
+                // ===== Header (filters + toggle/export) =====
                 var header = new Rect(0, 0, rect.width, headerH);
 
                 var searchLabel = new Rect(0, header.y, 70f, headerH);
@@ -232,10 +291,14 @@ namespace QualityInsights.UI
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
 
-                // Right-aligned header: Pop out
+                // Right-aligned header: Pop out / Dock toggle
                 float rx = rect.width - 110f;
-                if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), "Pop out"))
-                    Find.WindowStack.Add(new QualityLogWindow());
+                string toggleLabel = FloatingOpen ? "Dock" : "Pop out";
+                if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), toggleLabel))
+                {
+                    if (FloatingOpen) DockAndClosePopOut();
+                    else              PopOutAndCloseDock();
+                }
 
                 // ===== Apply filters =====
                 if (!string.IsNullOrWhiteSpace(search))
@@ -455,7 +518,11 @@ namespace QualityInsights.UI
 
                     QualityInsightsMod.Settings.colFractions = fracs;
                     QualityInsightsMod.Instance.WriteSettings();
-                    InvalidateColumnLayout();
+
+                    // Do NOT bump layout gen here; other instances will pick this up
+                    // because EnsureColPx() compares Settings.colFractions against _appliedFracs.
+                    _appliedFracs = fracs.ToArray();
+
                     Event.current.Use();
                 }
 
