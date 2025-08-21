@@ -61,6 +61,87 @@ namespace QualityInsights.UI
         // Invalidate the pixel cache so next repaint rebuilds from Settings.colFractions
         public static void InvalidateColumnLayout() { s_layoutGen++; }
 
+        // --- CSV helpers ---
+        private static string s_lastExportPath = string.Empty;
+
+        // Try to grab a folder icon if you ship one; falls back to text button automatically
+        private static readonly Texture2D TexOpenFolder =
+            ContentFinder<Texture2D>.Get("UI/Icons/OpenFolder", false)
+            ?? ContentFinder<Texture2D>.Get("UI/Buttons/OpenFolder", false)
+            ?? null;
+
+        // Cross-platform “reveal in Finder/Explorer/Files”
+        private static void OpenInFileBrowser(string targetPath)
+        {
+            try
+            {
+                // Fallback to save dir if empty
+                if (string.IsNullOrEmpty(targetPath))
+                    targetPath = GenFilePaths.SaveDataFolderPath;
+
+                // Normalize + derive a directory
+                targetPath = Path.GetFullPath(targetPath);
+                string dir = Directory.Exists(targetPath)
+                    ? targetPath
+                    : (Path.GetDirectoryName(targetPath) ?? GenFilePaths.SaveDataFolderPath);
+
+                // Ensure directory exists (paranoid)
+                if (!Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                var plat = Application.platform;
+
+                // --- Windows ---
+                if (plat == RuntimePlatform.WindowsPlayer || plat == RuntimePlatform.WindowsEditor)
+                {
+                    if (File.Exists(targetPath))
+                    {
+                        // Select the file in Explorer
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "explorer.exe",
+                            Arguments = "/select,\"" + targetPath + "\"",
+                            UseShellExecute = true
+                        });
+                    }
+                    else
+                    {
+                        // Open the folder via the shell (avoids the “This PC” issue)
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = dir,
+                            UseShellExecute = true
+                        });
+                    }
+                    return;
+                }
+
+                // --- macOS ---
+                if (plat == RuntimePlatform.OSXPlayer || plat == RuntimePlatform.OSXEditor)
+                {
+                    if (File.Exists(targetPath))
+                        System.Diagnostics.Process.Start("open", "-R \"" + targetPath + "\""); // reveal file
+                    else
+                        System.Diagnostics.Process.Start("open", "\"" + dir + "\"");
+                    return;
+                }
+
+                // --- Linux/Other ---
+                System.Diagnostics.Process.Start("xdg-open", "\"" + dir + "\"");
+            }
+            catch (System.Exception ex)
+            {
+                Log.Warning($"[QualityInsights] OpenInFileBrowser failed: {ex}");
+                try
+                {
+                    GUIUtility.systemCopyBuffer = targetPath ?? GenFilePaths.SaveDataFolderPath;
+                    Messages.Message("Couldn’t open file browser. Path copied to clipboard.", MessageTypeDefOf.RejectInput, false);
+                }
+                catch { /* ignore */ }
+            }
+        }
+
+
         public static void ResetColumnsToDefaults()
         {
             QualityInsightsMod.Settings.colFractions = DefaultColFractions();
@@ -193,18 +274,45 @@ namespace QualityInsights.UI
 
                 // Right-aligned cluster: Export, Reload, Settings
                 float bw = 100f, gap = 8f;
-                float xRight = footer.xMax - (bw * 3 + gap * 2) - 6f;
+                float extraW = (TexOpenFolder != null ? (28f + gap) : (90f + gap)); // icon or text fallback
+                float xRight = footer.xMax - (bw * 3 + gap * 2 + extraW) - 6f;
 
+                // Export
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "QI_ExportCSV".Translate()))
                     ExportCSV(comp);
                 xRight += bw + gap;
 
+                // NEW: Open folder button (icon if available, otherwise a small text button)
+                bool openClicked = false;
+                if (TexOpenFolder != null)
+                {
+                    var r = new Rect(xRight, footer.y + 3f, 28f, 28f);
+                    openClicked = Widgets.ButtonImage(r, TexOpenFolder);
+                    TooltipHandler.TipRegion(r, "Open export folder");
+                    xRight += 28f + gap;
+                }
+                else
+                {
+                    openClicked = Widgets.ButtonText(new Rect(xRight, footer.y + 3f, 90f, 28f), "Open folder");
+                    xRight += 90f + gap;
+                }
+                if (openClicked)
+                {
+                    // Prefer the last explicit file if it exists, otherwise open the save-data directory
+                    string target = File.Exists(s_lastExportPath)
+                        ? s_lastExportPath
+                        : Path.Combine(GenFilePaths.SaveDataFolderPath, "QualityInsights_Log.csv");
+                    OpenInFileBrowser(target);
+                }
+
+                // Reload
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Reload"))
                 {
                     // Nothing to reload from disk; view is live. Kept for parity/UI.
                 }
                 xRight += bw + gap;
 
+                // Settings
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Settings"))
                     QualityInsightsMod.OpenSettings();
 
@@ -658,7 +766,6 @@ namespace QualityInsights.UI
         private static void ExportCSV(QualityLogComponent comp)
         {
             var sb = new StringBuilder();
-            // sb.AppendLine("Ticks,TimeAgo,Pawn,Skill,Level,Quality,Thing,Stuff,Inspired,ProductionSpecialist");
             sb.AppendLine("Ticks,TimeAgo,Pawn,Skill,Level,Quality,Thing,Stuff,Materials,Inspired,ProductionSpecialist");
             foreach (var e in comp.entries.OrderBy(x => x.gameTicks))
             {
@@ -671,15 +778,20 @@ namespace QualityInsights.UI
                     e.quality,
                     Escape(e.thingDef),
                     Escape(e.stuffDef ?? string.Empty),
-                    Escape(string.Join("+", e.mats ?? new List<string>())),   // Materials column
+                    Escape(string.Join("+", e.mats ?? new List<string>())),
                     e.inspiredCreativity,
                     e.productionSpecialist));
             }
             var dir = GenFilePaths.SaveDataFolderPath;
             var path = Path.Combine(dir, "QualityInsights_Log.csv");
             File.WriteAllText(path, sb.ToString());
+            s_lastExportPath = path;
+            // Optional nicety: copy the path so users can Ctrl+V it if needed
+            GUIUtility.systemCopyBuffer = path;
+
             Messages.Message($"Exported to {path}", MessageTypeDefOf.TaskCompletion, false);
         }
+
 
         private static string Escape(string s) => '"' + (s ?? string.Empty).Replace("\"", "\"\"") + '"';
     }

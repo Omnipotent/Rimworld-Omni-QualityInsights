@@ -39,31 +39,32 @@ namespace QualityInsights.UI
             var dragBar = new Rect(inRect.x, inRect.y, inRect.width, DragBarH);
             Widgets.DrawLightHighlight(dragBar);
 
-            if (!_tab.IsDraggingSplitter) // instance-scoped, not static
+            if (!_tab.IsDraggingSplitter)
             {
                 var ev = Event.current;
                 if (ev.type == EventType.MouseDown && ev.button == 0 && dragBar.Contains(ev.mousePosition))
                 {
                     _draggingWindow = true;
-                    _dragStartMouse = GUIUtility.GUIToScreenPoint(ev.mousePosition);
-                    _dragStartWinPos = windowRect.position;
+                    _dragStartMouse = ev.mousePosition;       // local coords
+                    _dragStartWinPos = windowRect.position;   // absolute window pos
                     ev.Use();
                 }
                 else if (ev.type == EventType.MouseDrag && _draggingWindow && ev.button == 0)
                 {
-                    Vector2 curScreen = GUIUtility.GUIToScreenPoint(ev.mousePosition);
-                    Vector2 delta = curScreen - _dragStartMouse;
-                    windowRect.position = _dragStartWinPos + delta;
-
-                    float maxX = Verse.UI.screenWidth  - windowRect.width;
-                    float maxY = Verse.UI.screenHeight - windowRect.height;
-                    windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, maxX));
-                    windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, maxY));
+                    Vector2 delta = ev.mousePosition - _dragStartMouse; // local delta
+                    windowRect.position = _dragStartWinPos + delta;      // no clamp here
                     ev.Use();
                 }
                 else if ((ev.type == EventType.MouseUp || ev.rawType == EventType.MouseUp) && _draggingWindow)
                 {
                     _draggingWindow = false;
+
+                    // Clamp once at the end to keep it on-screen
+                    float maxX = Verse.UI.screenWidth  - windowRect.width;
+                    float maxY = Verse.UI.screenHeight - windowRect.height;
+                    windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, maxX));
+                    windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, maxY));
+
                     ev.Use();
                 }
             }
