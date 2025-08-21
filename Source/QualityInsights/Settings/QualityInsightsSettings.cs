@@ -37,7 +37,7 @@ namespace QualityInsights
             new() { 0.08f, 0.08f, 0.14f, 0.12f, 0.06f, 0.08f, 0.18f, 0.18f, 0.08f };
         // 9 columns (Time, RL, Pawn, Skill, Lvl, Quality, Item, Stuff, Tags)
         public List<float> colFractions = MainTabWindow_QualityLog.DefaultColFractions();
-
+        public List<string> hiddenCols = new();   // e.g., "Time","RL","Pawn","Skill","Lvl","Quality","Item","Stuff","Tags"
 
         public bool enableDebugLogs = false;
         public override void ExposeData()
@@ -61,10 +61,11 @@ namespace QualityInsights
             Scribe_Values.Look(ref tableRowScale,  nameof(tableRowScale),  1.00f);
 
             Scribe_Collections.Look(ref colFractions, nameof(colFractions), LookMode.Value);
-
-            // safety: if list wasn't saved or size changed, restore defaults
             if (colFractions == null || colFractions.Count == 0)
                 colFractions = MainTabWindow_QualityLog.DefaultColFractions();
+
+            Scribe_Collections.Look(ref hiddenCols, "QI_hiddenCols", LookMode.Value);
+            hiddenCols ??= new List<string>();
         }
 
         // convenience for UI code (unchanged)
@@ -96,6 +97,7 @@ namespace QualityInsights
             maxExportFolderMB  = 50;
 
             colFractions       = NewDefaultColFractions();
+            hiddenCols.Clear();
 
             enableDebugLogs    = false;
         }

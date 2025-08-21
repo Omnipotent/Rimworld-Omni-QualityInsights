@@ -51,7 +51,7 @@ namespace QualityInsights.UI
 
         private enum ViewMode { Log, Table }
         private static ViewMode s_viewMode = ViewMode.Table;   // remembers last used while game runs
-        private static int  s_sortCol = 0;                     // table sort column
+        private static Col  s_sortCol = Col.Time;                     // table sort column
         private static bool s_sortAsc = false;                 // sort direction
 
         private Vector2 scroll;
@@ -100,6 +100,37 @@ namespace QualityInsights.UI
 
         // --- CSV helpers ---
         private static string s_lastExportPath = string.Empty;
+
+        // Stable column IDs so sort & persistence don't break when hidden
+        private enum Col { Time, RL, Pawn, Skill, Lvl, Quality, Item, Stuff, Tags }
+        private static readonly (Col id, string header, string key)[] AllCols =
+        {
+            (Col.Time,    "Time",    "Time"),
+            (Col.RL,      "RL",      "RL"),
+            (Col.Pawn,    "Pawn",    "Pawn"),
+            (Col.Skill,   "Skill",   "Skill"),
+            (Col.Lvl,     "Lvl",     "Lvl"),
+            (Col.Quality, "Quality", "Quality"),
+            (Col.Item,    "Item",    "Item"),
+            (Col.Stuff,   "Stuff",   "Stuff"),
+            (Col.Tags,    "Tags",    "Tags"),
+        };
+
+        // Helpers
+        private static string HeaderFor(Col c) => AllCols.First(t => t.id == c).header;
+        private static string KeyFor(Col c)    => AllCols.First(t => t.id == c).key;
+        private static int IndexOf(Col c)      => Array.FindIndex(AllCols, t => t.id == c);
+
+        // Compute current visible list (never empty)
+        private static List<Col> VisibleCols()
+        {
+            var hidden = QualityInsightsMod.Settings.hiddenCols ??= new List<string>();
+            var vis = new List<Col>(AllCols.Length);
+            foreach (var t in AllCols)
+                if (!hidden.Contains(t.key)) vis.Add(t.id);
+            if (vis.Count == 0) vis.Add(Col.Time); // safety
+            return vis;
+        }
 
         // Cross-platform “reveal in Finder/Explorer/Files”
         private static void OpenInFileBrowser(string targetPath)
@@ -173,13 +204,15 @@ namespace QualityInsights.UI
 
         private void EnsureColPx(float tableW)
         {
-            int n = ColHeaders.Length;
+            var vis = VisibleCols();
+            int nVis = vis.Count;
+            int nAll = AllCols.Length;
 
             var frac = QualityInsightsMod.Settings.colFractions;
-            if (frac == null || frac.Count != n)
+            if (frac == null || frac.Count != nAll)
             {
                 frac = QualityInsightsMod.Settings.colFractions = DefaultColFractions();
-                InvalidateColumnLayout(); // keep old behavior
+                InvalidateColumnLayout();
             }
 
             // If settings changed elsewhere, rebuild our cache
@@ -192,30 +225,45 @@ namespace QualityInsights.UI
                 _appliedFracs = Array.Empty<float>();
             }
 
+            // Build the visible-only normalized fractions
+            var visFracs = new float[nVis];
+            float sumVis = 0f;
+            for (int i = 0; i < nVis; i++)
+            {
+                sumVis += Mathf.Max(0f, frac[IndexOf(vis[i])]);
+            }
+            if (sumVis <= 0f)
+            {
+                // fall back to defaults if all-zero
+                var def = DefaultColFractions();
+                sumVis = 0f;
+                for (int i = 0; i < nVis; i++) { var f = def[IndexOf(vis[i])]; visFracs[i] = f; sumVis += f; }
+            }
+            else
+            {
+                for (int i = 0; i < nVis; i++) visFracs[i] = frac[IndexOf(vis[i])];
+            }
+            for (int i = 0; i < nVis; i++) visFracs[i] = visFracs[i] / sumVis;
+
             // Detect fraction changes even without a layout-gen bump
-            bool fracsChanged = _appliedFracs.Length != n;
+            bool fracsChanged = _appliedFracs.Length != nVis;
             if (!fracsChanged)
             {
-                for (int i = 0; i < n; i++)
-                {
-                    if (Mathf.Abs(frac[i] - _appliedFracs[i]) > 0.0001f) { fracsChanged = true; break; }
-                }
+                for (int i = 0; i < nVis; i++)
+                    if (Mathf.Abs(visFracs[i] - _appliedFracs[i]) > 0.0001f) { fracsChanged = true; break; }
             }
 
-            // Recompute px cache if size changed, cache missing, or fractions changed
-            if (fracsChanged || _colPx.Length != n - 1 || Mathf.Abs(_lastTableW - tableW) > 0.5f || _colPx.All(w => w <= 0f))
+            // Recompute px cache if size changed, cache missing, or fracs changed
+            if (fracsChanged || _colPx.Length != Mathf.Max(0, nVis - 1) || Mathf.Abs(_lastTableW - tableW) > 0.5f || _colPx.All(w => w <= 0f))
             {
-                _colPx = new float[n - 1];
-                for (int i = 0; i < n - 1; i++)
-                    _colPx[i] = Mathf.Max(ColMinPx, tableW * frac[i]);
+                _colPx = new float[Mathf.Max(0, nVis - 1)];
+                for (int i = 0; i < nVis - 1; i++)
+                    _colPx[i] = Mathf.Max(ColMinPx, tableW * visFracs[i]);
 
                 _lastTableW = tableW;
-
-                // remember the exact fractions we applied
-                _appliedFracs = frac.ToArray();
+                _appliedFracs = visFracs; // remember the visible set we applied
             }
         }
-
 
         public override Vector2 RequestedTabSize
         {
@@ -293,13 +341,49 @@ namespace QualityInsights.UI
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
 
-                // Right-aligned header: Pop out / Dock toggle
+                // Right-aligned header buttons
                 float rx = rect.width - 110f;
                 string toggleLabel = FloatingOpen ? "Dock" : "Pop out";
                 if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), toggleLabel))
                 {
                     if (FloatingOpen) DockAndClosePopOut();
                     else              PopOutAndCloseDock();
+                }
+                rx -= 110f;
+
+                // NEW: Columns menu
+                if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), "Columns"))
+                {
+                    var hidden = QualityInsightsMod.Settings.hiddenCols ??= new List<string>();
+                    var opts = new List<FloatMenuOption>();
+
+                    foreach (var t in AllCols)
+                    {
+                        bool isHidden = hidden.Contains(t.key);
+                        string label = (isHidden ? "   " : "✓ ") + t.header;  // faux checkbox
+                        opts.Add(new FloatMenuOption(label, () =>
+                        {
+                            // Never allow hiding all columns
+                            if (!isHidden)
+                            {
+                                // attempting to hide this; ensure at least one other remains visible
+                                int visibleCount = AllCols.Count(c => !hidden.Contains(c.key));
+                                if (visibleCount <= 1) { SoundDefOf.ClickReject.PlayOneShotOnCamera(); return; }
+                                hidden.Add(t.key);
+                                // If we just hid the sorted column, switch to first visible
+                                if (s_sortCol == t.id) s_sortCol = VisibleCols().First();
+                            }
+                            else
+                            {
+                                hidden.Remove(t.key);
+                            }
+
+                            QualityInsightsMod.Instance.WriteSettings();
+                            InvalidateColumnLayout();    // force all open instances to rebuild layout
+                        }));
+                    }
+
+                    Find.WindowStack.Add(new FloatMenu(opts));
                 }
 
                 // ===== Apply filters =====
@@ -431,21 +515,24 @@ namespace QualityInsights.UI
             IsHoveringSplitter = false;
             EnsureColPx(outRect.width);
             int n = ColHeaders.Length;
-            float hx = 0f;
+            var vis = VisibleCols();
+            int nVis = vis.Count;
 
-            // ----- Header -----
-            for (int i = 0; i < n; i++)
+            float hx = 0f;
+            for (int vi = 0; vi < nVis; vi++)
             {
-                float w = (i < n - 1)
-                    ? _colPx[i]
+                float w = (vi < nVis - 1)
+                    ? _colPx[vi]
                     : Mathf.Max(ColMinPx, outRect.width - hx);
+
                 var hr = new Rect(outRect.x + hx, outRect.y, w, headerH);
 
-                bool hasSplit = i < n - 1;
+                bool hasSplit = vi < nVis - 1;
                 var hrLabel   = hasSplit ? new Rect(hr.x, hr.y, hr.width - SplitterW, hr.height) : hr;
 
                 if (Mouse.IsOver(hrLabel)) Widgets.DrawHighlight(hrLabel);
-                string label = ColHeaders[i] + (s_sortCol == i ? (s_sortAsc ? " ▲" : " ▼") : string.Empty);
+                var col = vis[vi];
+                string label = HeaderFor(col) + (s_sortCol == col ? (s_sortAsc ? " ▲" : " ▼") : "");
 
                 var oldA = Text.Anchor;
                 Text.Anchor = TextAnchor.MiddleLeft;
@@ -454,13 +541,13 @@ namespace QualityInsights.UI
 
                 if (Widgets.ButtonInvisible(hrLabel, true))
                 {
-                    if (s_sortCol == i) s_sortAsc = !s_sortAsc; else { s_sortCol = i; s_sortAsc = (i == 0); }
+                    if (s_sortCol == col) s_sortAsc = !s_sortAsc; else { s_sortCol = col; s_sortAsc = (col == Col.Time); }
                     Event.current.Use();
                 }
 
-                if (i < n - 1)
+                if (hasSplit)
                 {
-                    const float SplitterGrab = 14f;                 // was 10
+                    const float SplitterGrab = 14f;
                     var split = new Rect(hr.xMax - SplitterW, hr.y, SplitterW, hr.height);
                     var hit   = new Rect(split.x - (SplitterGrab - SplitterW) * 0.5f, split.y, SplitterGrab, split.height);
 
@@ -468,7 +555,7 @@ namespace QualityInsights.UI
 
                     if (Event.current.type == EventType.MouseDown && hit.Contains(Event.current.mousePosition))
                     {
-                        _dragCol    = i;
+                        _dragCol    = vi; // visible index
                         _dragStartX = Event.current.mousePosition.x;
                         Event.current.Use();
                     }
@@ -508,26 +595,45 @@ namespace QualityInsights.UI
                 {
                     _dragCol = -1;
 
+                    // Compute normalized visible fractions from current pixel widths
                     float used = 0f; for (int k = 0; k < _colPx.Length; k++) used += _colPx[k];
                     float lastW = Mathf.Max(ColMinPx, outRect.width - used);
 
-                    var fracs = new List<float>(n);
-                    for (int k = 0; k < _colPx.Length; k++) fracs.Add(Mathf.Max(ColMinPx, _colPx[k]) / outRect.width);
-                    fracs.Add(lastW / outRect.width);
+                    var visFracs = new List<float>(nVis);
+                    for (int k = 0; k < _colPx.Length; k++) visFracs.Add(Mathf.Max(ColMinPx, _colPx[k]) / outRect.width);
+                    visFracs.Add(lastW / outRect.width);
 
-                    float sum = fracs.Sum();
-                    if (sum > 0f) for (int k = 0; k < fracs.Count; k++) fracs[k] /= sum;
+                    float sum = visFracs.Sum();
+                    if (sum > 0f) for (int k = 0; k < visFracs.Count; k++) visFracs[k] /= sum;
 
-                    QualityInsightsMod.Settings.colFractions = fracs;
+                    // Map back into full fraction list (preserve hidden ratios)
+                    var full = new List<float>(QualityInsightsMod.Settings.colFractions);
+                    if (full.Count != AllCols.Length) full = DefaultColFractions();
+
+                    // How much of the 1.0 total is currently allocated to hidden cols?
+                    float hiddenSum = 0f;
+                    foreach (var t in AllCols)
+                        if (QualityInsightsMod.Settings.hiddenCols.Contains(t.key))
+                            hiddenSum += Mathf.Max(0f, full[IndexOf(t.id)]);
+
+                    float targetVisTotal = Mathf.Clamp01(1f - hiddenSum);
+                    if (targetVisTotal <= 0f) targetVisTotal = 1f;
+
+                    for (int k = 0; k < nVis; k++)
+                        full[IndexOf(vis[k])] = visFracs[k] * targetVisTotal;
+
+                    // Normalize to 1.0
+                    float tot = full.Sum();
+                    if (tot > 0f) for (int k = 0; k < full.Count; k++) full[k] /= tot;
+
+                    QualityInsightsMod.Settings.colFractions = full;
                     QualityInsightsMod.Instance.WriteSettings();
 
-                    // Do NOT bump layout gen here; other instances will pick this up
-                    // because EnsureColPx() compares Settings.colFractions against _appliedFracs.
-                    _appliedFracs = fracs.ToArray();
+                    // remember what we applied (visible-only)
+                    _appliedFracs = visFracs.ToArray();
 
                     Event.current.Use();
                 }
-
             }
 
             // ----- Sort -----
@@ -550,41 +656,27 @@ namespace QualityInsights.UI
                 if ((idx & 1) == 1) DrawZebra(row);
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
-                for (int i = 0; i < ColHeaders.Length; i++)
+                for (int vi = 0; vi < nVis; vi++)
                 {
-                    float w = (i < ColHeaders.Length - 1) ? _colPx[i] : lastPxRows;
+                    float w = (vi < nVis - 1) ? _colPx[vi] : lastPxRows;
                     var cell = new Rect(x, y, w, rowH);
 
-                    switch (i)
+                    switch (vis[vi])
                     {
-                        case 0: // Time (in-game)
-                            DrawCellOneLine(cell, e.TimeAgoString);
-                            break;
-                        case 1: // RL (real-life play time)
-                            DrawCellOneLine(cell, e.HasPlayStamp ? FormatPlayTime(nowPlay - e.playSecondsAtLog) : "–");
-                            break;
-                        case 2: // Pawn
-                            DrawPawnWithIconOneLine(cell, e.pawnName);
-                            break;
-                        case 3: // Skill
-                            DrawCellOneLine(cell, e.skillDef ?? "Unknown");
-                            break;
-                        case 4: // Lvl
-                            DrawCellRightOneLine(cell, e.skillLevelAtFinish.ToString());
-                            break;
-                        case 5: // Quality
-                            DrawQualityOneLine(cell, e.quality);
-                            break;
-                        case 6: // Item
-                            DrawThingWithIconOneLine(cell, e.thingDef);
-                            break;
-                        case 7: // Stuff / Materials
+                        case Col.Time:    DrawCellOneLine(cell, e.TimeAgoString); break;
+                        case Col.RL:      DrawCellOneLine(cell, e.HasPlayStamp ? FormatPlayTime(nowPlay - e.playSecondsAtLog) : "–"); break;
+                        case Col.Pawn:    DrawPawnWithIconOneLine(cell, e.pawnName); break;
+                        case Col.Skill:   DrawCellOneLine(cell, e.skillDef ?? "Unknown"); break;
+                        case Col.Lvl:     DrawCellRightOneLine(cell, e.skillLevelAtFinish.ToString()); break;
+                        case Col.Quality: DrawQualityOneLine(cell, e.quality); break;
+                        case Col.Item:    DrawThingWithIconOneLine(cell, e.thingDef); break;
+                        case Col.Stuff:
                             if (e.HasMats) DrawMatsListOneLine(cell, e.mats);
                             else           DrawDefWithIconOneLine(cell, e.stuffDef);
                             break;
-                        case 8: // Tags
+                        case Col.Tags:
                             string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
-                                          (e.productionSpecialist ? "ProdSpec" : string.Empty);
+                                        (e.productionSpecialist ? "ProdSpec" : string.Empty);
                             DrawCellOneLine(cell, tags);
                             break;
                     }
@@ -601,22 +693,22 @@ namespace QualityInsights.UI
 
         private List<QualityLogEntry> SortForTable(List<QualityLogEntry> list)
         {
-            // NOTE: Sorting for RL column uses HasPlayStamp + playSecondsAtLog (unknown first)
             IOrderedEnumerable<QualityLogEntry> ordered = s_sortCol switch
             {
-                0 => list.OrderBy(e => e.gameTicks), // Time asc = older first
-                1 => list.OrderBy(e => e.HasPlayStamp ? 0 : 1).ThenBy(e => e.playSecondsAtLog),
-                2 => list.OrderBy(e => e.pawnName),
-                3 => list.OrderBy(e => e.skillDef),
-                4 => list.OrderBy(e => e.skillLevelAtFinish),
-                5 => list.OrderBy(e => e.quality),
-                6 => list.OrderBy(e => e.thingDef),
-                7 => list.OrderBy(e => e.stuffDef),
-                8 => list.OrderBy(e => (e.inspiredCreativity ? 1 : 0) + (e.productionSpecialist ? 2 : 0)),
-                _ => list.OrderBy(e => e.gameTicks)
+                Col.Time    => list.OrderBy(e => e.gameTicks), // asc = older first
+                Col.RL      => list.OrderBy(e => e.HasPlayStamp ? 0 : 1).ThenBy(e => e.playSecondsAtLog),
+                Col.Pawn    => list.OrderBy(e => e.pawnName),
+                Col.Skill   => list.OrderBy(e => e.skillDef),
+                Col.Lvl     => list.OrderBy(e => e.skillLevelAtFinish),
+                Col.Quality => list.OrderBy(e => e.quality),
+                Col.Item    => list.OrderBy(e => e.thingDef),
+                Col.Stuff   => list.OrderBy(e => e.stuffDef),
+                Col.Tags    => list.OrderBy(e => (e.inspiredCreativity ? 1 : 0) + (e.productionSpecialist ? 2 : 0)),
+                _           => list.OrderBy(e => e.gameTicks),
             };
             return (s_sortAsc ? ordered : ordered.Reverse()).ToList();
         }
+
 
         // ===== one-line cell renderers =====
         private static void DrawCellOneLine(Rect r, string text)
