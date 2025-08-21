@@ -89,6 +89,26 @@ namespace QualityInsights
                 Messages.Message("QI_ResetColsMsg".Translate(), MessageTypeDefOf.TaskCompletion, false);
             }
 
+            // --- NEW: Reset ALL mod settings button ---
+            if (ls.ButtonText("QI_Settings_ResetAll".Translate()))
+            {
+                Find.WindowStack.Add(
+                    Dialog_MessageBox.CreateConfirmation(
+                        "QI_ResetAllConfirm".Translate(),
+                        () =>
+                        {
+                            Settings.ResetAllToDefaults();
+
+                            // Make sure any open table windows rebuild their layout immediately.
+                            MainTabWindow_QualityLog.ResetColumnsToDefaults();
+
+                            // Optional: toast
+                            Messages.Message("QI_ResetAllMsg".Translate(), MessageTypeDefOf.TaskCompletion, false);
+                        }
+                    )
+                );
+            }
+
             ls.Gap();
             if (ls.ButtonText("QI_Settings_OpenLog".Translate()))
                 Find.WindowStack.Add(new UI.QualityLogWindow());

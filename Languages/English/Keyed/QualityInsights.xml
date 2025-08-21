@@ -30,4 +30,8 @@
   <QI_Font_Tiny>Tiny</QI_Font_Tiny>
   <QI_Font_Small>Small</QI_Font_Small>
   <QI_Font_Medium>Medium</QI_Font_Medium>
+
+  <QI_Settings_ResetAll>Reset all settings to defaults</QI_Settings_ResetAll>
+  <QI_ResetAllConfirm>Reset all Quality Insights settings to their defaults? This action cannot be undone.</QI_ResetAllConfirm>
+  <QI_ResetAllMsg>Quality Insights settings reset to defaults.</QI_ResetAllMsg>
 </LanguageData>

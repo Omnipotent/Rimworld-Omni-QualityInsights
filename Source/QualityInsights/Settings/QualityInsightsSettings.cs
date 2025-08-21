@@ -31,6 +31,8 @@ namespace QualityInsights
         public int  maxExportFolderMB = 50; // or cap by size
 
         // persistent table column fractions (must sum ~1) — store as List<float> for scribing
+        private static List<float> NewDefaultColFractions() =>
+            new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
         public List<float> colFractions = new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
 
         public bool enableDebugLogs = false;
@@ -39,36 +41,59 @@ namespace QualityInsights
             base.ExposeData();
             Scribe_Values.Look(ref enableDebugLogs, "QI_enableDebugLogs", false);
 
-            Scribe_Values.Look(ref enableLogging, nameof(enableLogging), true);
-            Scribe_Values.Look(ref enableLiveChances, nameof(enableLiveChances), true);
-            Scribe_Values.Look(ref enableCheat, nameof(enableCheat), false);
-            Scribe_Values.Look(ref minCheatChance, nameof(minCheatChance), 0.02f);
-            Scribe_Values.Look(ref estimationSamples, nameof(estimationSamples), 5000);
-            Scribe_Values.Look(ref pruneByAge,   nameof(pruneByAge),   true);
-            Scribe_Values.Look(ref keepDays,     nameof(keepDays),     60);
-            Scribe_Values.Look(ref pruneByCount, nameof(pruneByCount), true);
-            Scribe_Values.Look(ref maxEntries,   nameof(maxEntries),   20000);
-            Scribe_Values.Look(ref maxExportFiles,    nameof(maxExportFiles),    20);
-            Scribe_Values.Look(ref maxExportFolderMB, nameof(maxExportFolderMB), 50);
+            Scribe_Values.Look(ref enableLogging,      nameof(enableLogging),      true);
+            Scribe_Values.Look(ref enableLiveChances,  nameof(enableLiveChances),  true);
+            Scribe_Values.Look(ref enableCheat,        nameof(enableCheat),        false);
+            Scribe_Values.Look(ref minCheatChance,     nameof(minCheatChance),     0.02f);
+            Scribe_Values.Look(ref estimationSamples,  nameof(estimationSamples),  5000);
+            Scribe_Values.Look(ref pruneByAge,         nameof(pruneByAge),         true);
+            Scribe_Values.Look(ref keepDays,           nameof(keepDays),           60);
+            Scribe_Values.Look(ref pruneByCount,       nameof(pruneByCount),       true);
+            Scribe_Values.Look(ref maxEntries,         nameof(maxEntries),         20000);
+            Scribe_Values.Look(ref maxExportFiles,     nameof(maxExportFiles),     20);
+            Scribe_Values.Look(ref maxExportFolderMB,  nameof(maxExportFolderMB),  50);
 
-            Scribe_Values.Look(ref logFont, nameof(logFont), UIFont.Small);
-            Scribe_Values.Look(ref tableRowScale, nameof(tableRowScale), 1.00f);
+            Scribe_Values.Look(ref logFont,        nameof(logFont),        UIFont.Small);
+            Scribe_Values.Look(ref tableRowScale,  nameof(tableRowScale),  1.00f);
 
-            // List<T> is required here (not arrays)
             Scribe_Collections.Look(ref colFractions, nameof(colFractions), LookMode.Value);
 
-            // safety: if list wasn't saved or size changed, restore defaults
+            // safety: ensure defaults if missing or wrong size
             if (colFractions == null || colFractions.Count != 8)
-                colFractions = new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
+                colFractions = NewDefaultColFractions();
         }
 
-        // convenience for UI code
-        public GameFont GetLogGameFont() =>
-            logFont switch
-            {
-                UIFont.Tiny => GameFont.Tiny,
-                UIFont.Medium => GameFont.Medium,
-                _ => GameFont.Small
-            };
+        // convenience for UI code (unchanged)
+        public GameFont GetLogGameFont() => logFont switch
+        {
+            UIFont.Tiny   => GameFont.Tiny,
+            UIFont.Medium => GameFont.Medium,
+            _             => GameFont.Small
+        };
+
+        // --- NEW: one-call reset for every mod setting we own ---
+        public void ResetAllToDefaults()
+        {
+            enableLogging      = true;
+            enableLiveChances  = true;
+            enableCheat        = false;
+            minCheatChance     = 0.02f;
+            estimationSamples  = 5000;
+
+            logFont            = UIFont.Small;
+            tableRowScale      = 1.00f;
+
+            pruneByAge         = true;
+            keepDays           = 60;
+            pruneByCount       = true;
+            maxEntries         = 20000;
+
+            maxExportFiles     = 20;
+            maxExportFolderMB  = 50;
+
+            colFractions       = NewDefaultColFractions();
+
+            enableDebugLogs    = false;
+        }
     }
 }
