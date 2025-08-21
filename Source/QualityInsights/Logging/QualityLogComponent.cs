@@ -1,8 +1,9 @@
 // Source\QualityInsights\Logging\QualityLogComponent.cs
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;            // Time.unscaledDeltaTime
 using Verse;
-using QualityInsights; // for QualityInsightsMod.Settings
+using QualityInsights;       // QualityInsightsMod.Settings
 
 namespace QualityInsights.Logging
 {
@@ -10,15 +11,32 @@ namespace QualityInsights.Logging
     {
         public List<QualityLogEntry> entries = new();
 
+        // Accumulated real seconds of play while unpaused (persisted)
+        private double playSecondsAccum = 0.0;
+        public  double PlaySecondsAccum => playSecondsAccum;
+
         public QualityLogComponent(Game game) { }
 
         private const int TicksPerDay = 60000;
 
         public override void ExposeData()
         {
-            Scribe_Collections.Look(ref entries, "qi_entries", LookMode.Deep);
+            // Keep original key for backward compatibility
+            if (Scribe.mode == LoadSaveMode.Saving)
+            {
+                Scribe_Collections.Look(ref entries, "qi_entries", LookMode.Deep);
+            }
+            else
+            {
+                Scribe_Collections.Look(ref entries, "qi_entries", LookMode.Deep);
+                if (entries == null)
+                    Scribe_Collections.Look(ref entries, nameof(entries), LookMode.Deep);
+            }
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
-                PruneIfNeeded(); // enforce caps after load
+                PruneIfNeeded();
+
+            // Persist RL accumulator so deltas survive reloads
+            Scribe_Values.Look(ref playSecondsAccum, "qi_playSecondsAccum", 0.0);
         }
 
         private int _nextMaintenanceTick;
@@ -32,11 +50,34 @@ namespace QualityInsights.Logging
             }
         }
 
+        // Accumulate *real* play time while in Playing state and unpaused.
+        public override void GameComponentUpdate()
+        {
+            try
+            {
+                if (Current.Game == null) return;
+                if (Current.ProgramState != ProgramState.Playing) return;
+
+                var tm = Find.TickManager;
+                if (tm == null || tm.Paused) return;
+
+                // Real seconds, unaffected by game speed (1x/2x/3x)
+                playSecondsAccum += Time.unscaledDeltaTime;
+            }
+            catch
+            {
+                // Never break the game
+            }
+        }
+
         public void Add(QualityLogEntry e)
         {
+            // Stamp the entry with current unpaused real-time seconds
+            e.playSecondsAtLog = playSecondsAccum;
+
             entries.Add(e);
 
-            // cheap soft guard to avoid runaway growth between daily passes
+            // Soft guard to avoid runaway growth between daily passes
             var s = QualityInsightsMod.Settings;
             if (s.pruneByCount && s.maxEntries > 0 && entries.Count > s.maxEntries * 2)
                 PruneIfNeeded();

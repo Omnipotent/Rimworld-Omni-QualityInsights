@@ -28,9 +28,13 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static FieldInfo? _curInspField;
         [ThreadStatic] private static PropertyInfo? _curInspProp;
 
+        // Cache worker per product (safe to hold weakly)
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
-        // Mats are stored by thingIDNumber so they survive wrapping/replacement.
+
+        // Mats are stored by stable id so they survive wrapping/replacement/minification.
         private static readonly Dictionary<int, List<string>> _matsById = new();
+
+        // Prevent duplicate logs for the same thing in a short window
         private static readonly Dictionary<int, (int tick, QualityCategory q)> _logGuard
             = new Dictionary<int, (int, QualityCategory)>();
 
@@ -54,7 +58,7 @@ namespace QualityInsights.Patching
             PatchAllOverloads(harmony, typeof(InspirationHandler), "TryStartInspiration",
                 new HarmonyMethod(typeof(QualityPatches), nameof(InspirationGuardPrefix)));
 
-            // Capture mats/worker at recipe time (optional but useful)
+            // Capture mats/worker at recipe time
             var make = AccessTools.Method(typeof(GenRecipe), "MakeRecipeProducts");
             if (make != null)
             {
@@ -65,7 +69,7 @@ namespace QualityInsights.Patching
                 );
             }
 
-            // ---- Patch GenerateQualityCreatedByPawn overloads that start with (Pawn, SkillDef, ...) ----
+            // Patch GenerateQualityCreatedByPawn(Pawn, SkillDef, ...)
             bool IsPawnSkillFirst(MethodInfo m)
             {
                 var ps = m.GetParameters();
@@ -85,7 +89,7 @@ namespace QualityInsights.Patching
                     mi,
                     prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix)) { priority = Priority.High },
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Postfix)));
-                if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
+                if (DebugLogs)
                     Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (Pawn,SkillDef,...)");
             }
 
@@ -94,7 +98,7 @@ namespace QualityInsights.Patching
             else
                 Log.Warning("[QualityInsights] No (Pawn, SkillDef) GenerateQualityCreatedByPawn overloads found; sampling/cheat may misbehave.");
 
-            // ---- ALSO patch (int relevantSkillLevel, bool inspired, ...) overloads ----
+            // Also patch GenerateQualityCreatedByPawn(int level, bool inspired, ...)
             var genQualsLevelInspired = typeof(QualityUtility)
                 .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 .Where(m => m.Name == "GenerateQualityCreatedByPawn" && m.ReturnType == typeof(QualityCategory))
@@ -110,11 +114,11 @@ namespace QualityInsights.Patching
                 harmony.Patch(mi,
                     prefix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix_LevelInspired))
                     { priority = Priority.High });
-                if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
+                if (DebugLogs)
                     Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (int,bool,...)");
             }
 
-            // 2) Log final quality (and safety-bump if cheat says higher)
+            // Log final quality (and safety-bump if cheat says higher)
             var setQ = typeof(CompQuality)
                 .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .FirstOrDefault(m =>
@@ -131,13 +135,13 @@ namespace QualityInsights.Patching
             else
                 Log.Error("[QualityInsights] Could not locate CompQuality.SetQuality (signature changed?).");
 
-            // 2.5) capture product/pawn/materials right before quality is set
+            // Capture product/pawn/materials right before quality is set
             var postProcess = AccessTools.Method(typeof(GenRecipe), "PostProcessProduct");
             if (postProcess != null)
                 harmony.Patch(postProcess,
                     prefix: new HarmonyMethod(typeof(QualityPatches), nameof(PostProcessProduct_Prefix)));
 
-            // 2.6) bind construction products to worker
+            // Bind construction products to worker
             var complete = typeof(Frame)
                 .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .FirstOrDefault(m =>
@@ -153,7 +157,7 @@ namespace QualityInsights.Patching
             else
                 Log.Warning("[QualityInsights] Could not find Frame.CompleteConstruction(Pawn).");
 
-            // 3) Live Odds gizmo
+            // Live Odds gizmo
             var getGizmos = AccessTools.Method(typeof(Building), nameof(Building.GetGizmos));
             if (getGizmos != null)
                 harmony.Patch(getGizmos, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterGetGizmos)));
@@ -195,6 +199,9 @@ namespace QualityInsights.Patching
                     .ToList();
             }
             catch { _currentMats = null; }
+
+            if (DebugLogs)
+                Log.Message("[QI] MakeRecipeProducts captured mats=[" + string.Join(",", _currentMats ?? new List<string>()) + "]");
         }
 
         public static void MakeRecipeProducts_Postfix()
@@ -203,7 +210,6 @@ namespace QualityInsights.Patching
             // Do NOT clear _currentMats here. MakeRecipeProducts is an iterator,
             // and PostProcessProduct runs later during enumeration.
             // We clear transient state after logging in AfterSetQuality.
-            // (Intentionally left blank.)
         }
 
         private static List<string>? GetMaterialsFor(Thing thing)
@@ -601,7 +607,7 @@ namespace QualityInsights.Patching
             _currentSkill = null;
             _forcedQuality = null;
             _currentWorkerFromRecipe = null;
-            // _currentMats = null;
+            // Do NOT clear _currentMats here; it's overwritten on the next recipe prefix.
             _hadInspirationAtRoll = null;
             _wasProdSpecAtRoll = null;
         }

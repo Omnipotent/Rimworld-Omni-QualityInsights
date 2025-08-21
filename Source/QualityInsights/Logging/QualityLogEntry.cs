@@ -20,7 +20,12 @@ namespace QualityInsights.Logging
         // Actual ingredients used (distinct by def)
         public List<string>? mats;
 
+        // ---- NEW: real "play time" stamp (seconds while unpaused) ----
+        // -1 means "unknown" (entries from older saves).
+        public double playSecondsAtLog = -1.0;
+
         public bool HasMats => mats != null && mats.Count > 0;
+        public bool HasPlayStamp => playSecondsAtLog >= 0.0;
 
         public void ExposeData()
         {
@@ -37,8 +42,12 @@ namespace QualityInsights.Logging
             // Persist materials list (ok if absent in older saves)
             Scribe_Collections.Look(ref mats, nameof(mats), LookMode.Value);
             mats ??= new List<string>(); // keep non-null after load
+
+            // NEW: persist RL playtime stamp
+            Scribe_Values.Look(ref playSecondsAtLog, nameof(playSecondsAtLog), -1.0);
         }
 
+        // Existing: in-game time ago
         public string TimeAgoString =>
             GenDate.ToStringTicksToPeriod(Find.TickManager.TicksGame - gameTicks);
     }

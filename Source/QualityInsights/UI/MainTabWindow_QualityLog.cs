@@ -23,9 +23,6 @@ namespace QualityInsights.UI
         private QualityCategory? filterQuality = null;
         private string? filterSkill = null;  // defName from entries
 
-        // cache for string truncation measurements
-        // private static readonly Dictionary<string, string> TruncCache = new();
-
         // --- layout constants ---
         private const float HeaderH   = 32f;
         private const float FooterH   = 34f;
@@ -53,12 +50,10 @@ namespace QualityInsights.UI
         private static int s_layoutGen = 0;
         private int _seenLayoutGen = -1;
 
-
-        // Put near the top-level fields in MainTabWindow_QualityLog
+        // Column layout helpers
+        // NEW: default fractions now include an extra "RL" column after "Time"
         internal static List<float> DefaultColFractions() =>
-            new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
-
-        // Invalidate the pixel cache so next repaint rebuilds from Settings.colFractions
+            new() { 0.10f, 0.10f, 0.16f, 0.12f, 0.06f, 0.12f, 0.20f, 0.10f, 0.04f };
         public static void InvalidateColumnLayout() { s_layoutGen++; }
 
         // --- CSV helpers ---
@@ -69,28 +64,23 @@ namespace QualityInsights.UI
         {
             try
             {
-                // Fallback to save dir if empty
                 if (string.IsNullOrEmpty(targetPath))
                     targetPath = GenFilePaths.SaveDataFolderPath;
 
-                // Normalize + derive a directory
                 targetPath = Path.GetFullPath(targetPath);
                 string dir = Directory.Exists(targetPath)
                     ? targetPath
                     : (Path.GetDirectoryName(targetPath) ?? GenFilePaths.SaveDataFolderPath);
 
-                // Ensure directory exists (paranoid)
                 if (!Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
                 var plat = Application.platform;
 
-                // --- Windows ---
                 if (plat == RuntimePlatform.WindowsPlayer || plat == RuntimePlatform.WindowsEditor)
                 {
                     if (File.Exists(targetPath))
                     {
-                        // Select the file in Explorer
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "explorer.exe",
@@ -100,7 +90,6 @@ namespace QualityInsights.UI
                     }
                     else
                     {
-                        // Open the folder via the shell (avoids the “This PC” issue)
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = dir,
@@ -110,17 +99,15 @@ namespace QualityInsights.UI
                     return;
                 }
 
-                // --- macOS ---
                 if (plat == RuntimePlatform.OSXPlayer || plat == RuntimePlatform.OSXEditor)
                 {
                     if (File.Exists(targetPath))
-                        System.Diagnostics.Process.Start("open", "-R \"" + targetPath + "\""); // reveal file
+                        System.Diagnostics.Process.Start("open", "-R \"" + targetPath + "\"");
                     else
                         System.Diagnostics.Process.Start("open", "\"" + dir + "\"");
                     return;
                 }
 
-                // --- Linux/Other ---
                 System.Diagnostics.Process.Start("xdg-open", dir);
             }
             catch (System.Exception ex)
@@ -131,16 +118,15 @@ namespace QualityInsights.UI
                     GUIUtility.systemCopyBuffer = targetPath ?? GenFilePaths.SaveDataFolderPath;
                     Messages.Message("Couldn’t open file browser. Path copied to clipboard.", MessageTypeDefOf.RejectInput, false);
                 }
-                catch { /* ignore */ }
+                catch { }
             }
         }
-
 
         public static void ResetColumnsToDefaults()
         {
             QualityInsightsMod.Settings.colFractions = DefaultColFractions();
             QualityInsightsMod.Instance.WriteSettings();
-            InvalidateColumnLayout(); // tell all instances to rebuild px cache
+            InvalidateColumnLayout();
         }
 
         private void EnsureColPx(float tableW)
@@ -154,7 +140,6 @@ namespace QualityInsights.UI
                 InvalidateColumnLayout();
             }
 
-            // if settings changed elsewhere, rebuild our cache
             if (_seenLayoutGen != s_layoutGen)
             {
                 _colPx = Array.Empty<float>();
@@ -175,16 +160,26 @@ namespace QualityInsights.UI
         {
             get
             {
-                // Use Verse.UI.*, not our QualityInsights.UI namespace
                 float w = Mathf.Min(Mathf.Max(980f, Verse.UI.screenWidth * 0.90f), 1700f);
                 float h = Mathf.Min(Mathf.Max(640f, Verse.UI.screenHeight * 0.85f), 1000f);
                 return new Vector2(w, h);
             }
         }
 
+        // Format RL seconds as compact "1h 2m", "3m 5s", etc.
+        private static string FormatPlayTime(double seconds)
+        {
+            if (seconds < 0) return "–";
+            int s = Mathf.FloorToInt((float)seconds);
+            int h = s / 3600; s %= 3600;
+            int m = s / 60;   s %= 60;
+            if (h > 0) return $"{h}h {m}m";
+            if (m > 0) return $"{m}m {s}s";
+            return $"{s}s";
+        }
+
         public override void DoWindowContents(Rect rect)
         {
-            // apply user-selected font + row/header sizes
             var oldFont = Text.Font;
             Text.Font = QualityInsightsMod.Settings.GetLogGameFont();
             float rowH = 28f * QualityInsightsMod.Settings.tableRowScale;
@@ -194,17 +189,16 @@ namespace QualityInsights.UI
             {
                 var comp = QualityLogComponent.Ensure(Current.Game);
                 var rows = comp.entries.AsEnumerable();
+                double nowPlay = comp.PlaySecondsAccum; // snapshot once per repaint
 
-                // ===== Header (filters + export/reload) =====
+                // ===== Header (filters + export) =====
                 var header = new Rect(0, 0, rect.width, headerH);
 
-                // Search label + box with explicit spacing
                 var searchLabel = new Rect(0, header.y, 70f, headerH);
                 Widgets.Label(searchLabel, "Search:");
                 var searchBox = new Rect(searchLabel.xMax + 6f, header.y, rect.width * 0.28f, headerH);
                 search = Widgets.TextField(searchBox, search);
 
-                // Quality dropdown (fixed width)
                 float x = searchBox.xMax + Pad;
                 if (Widgets.ButtonText(new Rect(x, header.y, QualBtnW, headerH), filterQuality?.ToString() ?? "All qualities"))
                 {
@@ -219,7 +213,6 @@ namespace QualityInsights.UI
                 }
                 x += QualBtnW + Pad;
 
-                // Skill dropdown (fixed width; list built from entries so it’s mod-safe)
                 var skillsPresent = comp.entries
                     .Select(e => e.skillDef ?? "Unknown")
                     .Where(s => !string.IsNullOrEmpty(s))
@@ -239,11 +232,10 @@ namespace QualityInsights.UI
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
 
-                // Right-aligned header: only Pop out
+                // Right-aligned header: Pop out
                 float rx = rect.width - 110f;
                 if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), "Pop out"))
                     Find.WindowStack.Add(new QualityLogWindow());
-
 
                 // ===== Apply filters =====
                 if (!string.IsNullOrWhiteSpace(search))
@@ -257,37 +249,29 @@ namespace QualityInsights.UI
 
                 var list = rows.ToList();
 
-                // ===== Body (minus footer area) =====
+                // ===== Body =====
                 var body = new Rect(0, headerH + 8f, rect.width, rect.height - headerH - 8f - FooterH);
-                if (s_viewMode == ViewMode.Table) DrawTable(body, list, rowH, headerH);
-                else DrawLog(body, list, rowH);
+                if (s_viewMode == ViewMode.Table) DrawTable(body, list, rowH, headerH, nowPlay);
+                else DrawLog(body, list, rowH, nowPlay);
 
                 // ===== Footer =====
                 var footer = new Rect(0, rect.height - FooterH, rect.width, FooterH);
 
-                // right-side buttons (excerpt)
                 float bw = 100f, gap = 8f;
-                float xRight = footer.xMax - (bw * 3 + gap * 2 + (90f + gap)) - 6f; // 90px for Open folder
+                float xRight = footer.xMax - (bw * 2 + gap * 2 + 90f) - 6f;
 
                 // Export
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "QI_ExportCSV".Translate()))
                     ExportCSV(comp);
                 xRight += bw + gap;
 
-                // Open folder (text only)
+                // Open folder
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, 90f, 28f), "Open folder"))
                 {
                     string target = File.Exists(s_lastExportPath) ? s_lastExportPath : ExportDir;
                     OpenInFileBrowser(target);
                 }
                 xRight += 90f + gap;
-
-                // Reload
-                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Reload"))
-                {
-                    // Nothing to reload from disk; view is live. Kept for parity/UI.
-                }
-                xRight += bw + gap;
 
                 // Settings
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Settings"))
@@ -303,7 +287,7 @@ namespace QualityInsights.UI
             }
             finally
             {
-                Text.Font = oldFont; // always restore
+                Text.Font = oldFont;
             }
         }
 
@@ -319,11 +303,9 @@ namespace QualityInsights.UI
             float h = r.height;
             float x = r.x;
 
-            // how many square icons fit; cap to keep it tidy
             int maxIcons = Mathf.Clamp(Mathf.FloorToInt(r.width / h), 0, 3);
             int painted = 0;
 
-            // icons
             for (int i = 0; i < matDefNames.Count && painted < maxIcons; i++)
             {
                 var def = DefDatabase<ThingDef>.GetNamedSilentFail(matDefNames[i]);
@@ -339,15 +321,14 @@ namespace QualityInsights.UI
                 painted++;
             }
 
-            // text after icons (truncates nicely; full list in tooltip)
             var textRect = new Rect(x + 2f, r.y, r.xMax - (x + 2f), r.height);
             string label = string.Join(", ", matDefNames);
             DrawCellOneLine(textRect, label);
             TooltipHandler.TipRegion(r, label);
         }
 
-        // ----------------- LOG VIEW (scaled) -----------------
-        private void DrawLog(Rect outRect, List<QualityLogEntry> list, float rowH)
+        // ----------------- LOG VIEW (adds RL display) -----------------
+        private void DrawLog(Rect outRect, List<QualityLogEntry> list, float rowH, double nowPlay)
         {
             list = list.OrderByDescending(e => e.gameTicks).ToList();
 
@@ -366,9 +347,10 @@ namespace QualityInsights.UI
                 string skill = e.skillDef ?? "Unknown";
                 string stuff = string.IsNullOrEmpty(e.stuffDef) ? string.Empty : $"[{e.stuffDef}]";
                 string tags  = (e.inspiredCreativity ? " | Inspired" : string.Empty) +
-                            (e.productionSpecialist ? " | ProdSpec" : string.Empty);
+                               (e.productionSpecialist ? " | ProdSpec" : string.Empty);
 
-                DrawCellOneLine(r, $"{e.TimeAgoString} | {pawn} ({skill} {e.skillLevelAtFinish}) ➜ {e.quality} | {e.thingDef}{stuff}{tags}");
+                string rl = e.HasPlayStamp ? $" (RL: {FormatPlayTime(nowPlay - e.playSecondsAtLog)})" : string.Empty;
+                DrawCellOneLine(r, $"{e.TimeAgoString}{rl} | {pawn} ({skill} {e.skillLevelAtFinish}) ➜ {e.quality} | {e.thingDef}{stuff}{tags}");
                 y += rowH + 2f;
                 idx++;
             }
@@ -376,11 +358,10 @@ namespace QualityInsights.UI
             Widgets.EndScrollView();
         }
 
-        // ----------------- TABLE VIEW (scaled + resizable columns) -----------------
-        private static readonly string[] ColHeaders = { "Time", "Pawn", "Skill", "Lvl", "Quality", "Item", "Stuff", "Tags" };
-        // (Remove/ignore ColWidths; we now use s_col[] which is loaded from settings)
+        // ----------------- TABLE VIEW (adds RL column) -----------------
+        private static readonly string[] ColHeaders = { "Time", "RL", "Pawn", "Skill", "Lvl", "Quality", "Item", "Stuff", "Tags" };
 
-        private void DrawTable(Rect outRect, List<QualityLogEntry> list, float rowH, float headerH)
+        private void DrawTable(Rect outRect, List<QualityLogEntry> list, float rowH, float headerH, double nowPlay)
         {
             EnsureColPx(outRect.width);
             int n = ColHeaders.Length;
@@ -394,7 +375,7 @@ namespace QualityInsights.UI
                     : Mathf.Max(ColMinPx, outRect.width - hx);
                 var hr = new Rect(outRect.x + hx, outRect.y, w, headerH);
 
-                bool hasSplit = i < n - 1; // use n here
+                bool hasSplit = i < n - 1;
                 var hrLabel   = hasSplit ? new Rect(hr.x, hr.y, hr.width - SplitterW, hr.height) : hr;
 
                 if (Mouse.IsOver(hrLabel)) Widgets.DrawHighlight(hrLabel);
@@ -405,20 +386,17 @@ namespace QualityInsights.UI
                 Widgets.Label(hrLabel.ContractedBy(6f, 0f), label);
                 Text.Anchor = oldA;
 
-                // sort when the *label* is clicked (not the splitter)
                 if (Widgets.ButtonInvisible(hrLabel, true))
                 {
                     if (s_sortCol == i) s_sortAsc = !s_sortAsc; else { s_sortCol = i; s_sortAsc = (i == 0); }
                     Event.current.Use();
                 }
 
-                // splitter only for columns 0..n-2
                 if (i < n - 1)
                 {
                     var split = new Rect(hr.xMax - SplitterW, hr.y, SplitterW, hr.height);
                     MouseoverSounds.DoRegion(split);
 
-                    // visual cue (optional)
                     var old = GUI.color; GUI.color = new Color(1f, 1f, 1f, 0.08f);
                     Widgets.DrawLineVertical(split.center.x, split.y + 4f, split.height - 8f);
                     GUI.color = old;
@@ -435,7 +413,7 @@ namespace QualityInsights.UI
             }
             Widgets.DrawLineHorizontal(outRect.x, outRect.y + headerH - 1f, outRect.width);
 
-            // ----- Handle splitter drag (if any) -----
+            // ----- Handle splitter drag -----
             if (_dragCol >= 0)
             {
                 if (Event.current.type == EventType.MouseDrag)
@@ -477,21 +455,20 @@ namespace QualityInsights.UI
 
                     QualityInsightsMod.Settings.colFractions = fracs;
                     QualityInsightsMod.Instance.WriteSettings();
-                    InvalidateColumnLayout(); // <- tells the *other* window to rebuild its px cache
+                    InvalidateColumnLayout();
                     Event.current.Use();
                 }
 
             }
 
-            // ----- Sort after header interactions -----
+            // ----- Sort -----
             list = SortForTable(list);
 
-            // ----- Rows area -----
+            // ----- Rows -----
             var rowsOut  = new Rect(outRect.x, outRect.y + headerH, outRect.width, outRect.height - headerH);
             var viewRect = new Rect(0, 0, rowsOut.width - 16f, list.Count * rowH + 8f);
             Widgets.BeginScrollView(rowsOut, ref scroll, viewRect);
 
-            // Precompute last-column width for the rows area (based on viewRect.width)
             float usedPx = 0f; for (int k = 0; k < _colPx.Length; k++) usedPx += _colPx[k];
             float lastPxRows = Mathf.Max(ColMinPx, viewRect.width - usedPx);
 
@@ -504,38 +481,41 @@ namespace QualityInsights.UI
                 if ((idx & 1) == 1) DrawZebra(row);
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
-                for (int i = 0; i < n; i++)
+                for (int i = 0; i < ColHeaders.Length; i++)
                 {
-                    float w = (i < n - 1) ? _colPx[i] : lastPxRows;
+                    float w = (i < ColHeaders.Length - 1) ? _colPx[i] : lastPxRows;
                     var cell = new Rect(x, y, w, rowH);
 
                     switch (i)
                     {
-                        case 0: // Time
+                        case 0: // Time (in-game)
                             DrawCellOneLine(cell, e.TimeAgoString);
                             break;
-                        case 1: // Pawn (with portrait)
+                        case 1: // RL (real-life play time)
+                            DrawCellOneLine(cell, e.HasPlayStamp ? FormatPlayTime(nowPlay - e.playSecondsAtLog) : "–");
+                            break;
+                        case 2: // Pawn
                             DrawPawnWithIconOneLine(cell, e.pawnName);
                             break;
-                        case 2: // Skill
+                        case 3: // Skill
                             DrawCellOneLine(cell, e.skillDef ?? "Unknown");
                             break;
-                        case 3: // Lvl (right-aligned)
+                        case 4: // Lvl
                             DrawCellRightOneLine(cell, e.skillLevelAtFinish.ToString());
                             break;
-                        case 4: // Quality
+                        case 5: // Quality
                             DrawQualityOneLine(cell, e.quality);
                             break;
-                        case 5: // Item (def icon)
+                        case 6: // Item
                             DrawThingWithIconOneLine(cell, e.thingDef);
                             break;
-                        case 6: // Stuff / Materials
+                        case 7: // Stuff / Materials
                             if (e.HasMats) DrawMatsListOneLine(cell, e.mats);
                             else           DrawDefWithIconOneLine(cell, e.stuffDef);
                             break;
-                        case 7: // Tags
+                        case 8: // Tags
                             string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
-                                        (e.productionSpecialist ? "ProdSpec" : string.Empty);
+                                          (e.productionSpecialist ? "ProdSpec" : string.Empty);
                             DrawCellOneLine(cell, tags);
                             break;
                     }
@@ -550,26 +530,26 @@ namespace QualityInsights.UI
             Widgets.EndScrollView();
         }
 
-
         private List<QualityLogEntry> SortForTable(List<QualityLogEntry> list)
         {
-            // stable, single-column sort with toggleable direction
+            // NOTE: Sorting for RL column uses HasPlayStamp + playSecondsAtLog (unknown first)
             IOrderedEnumerable<QualityLogEntry> ordered = s_sortCol switch
             {
                 0 => list.OrderBy(e => e.gameTicks), // Time asc = older first
-                1 => list.OrderBy(e => e.pawnName),
-                2 => list.OrderBy(e => e.skillDef),
-                3 => list.OrderBy(e => e.skillLevelAtFinish),
-                4 => list.OrderBy(e => e.quality),
-                5 => list.OrderBy(e => e.thingDef),
-                6 => list.OrderBy(e => e.stuffDef),
-                7 => list.OrderBy(e => (e.inspiredCreativity ? 1 : 0) + (e.productionSpecialist ? 2 : 0)),
+                1 => list.OrderBy(e => e.HasPlayStamp ? 0 : 1).ThenBy(e => e.playSecondsAtLog),
+                2 => list.OrderBy(e => e.pawnName),
+                3 => list.OrderBy(e => e.skillDef),
+                4 => list.OrderBy(e => e.skillLevelAtFinish),
+                5 => list.OrderBy(e => e.quality),
+                6 => list.OrderBy(e => e.thingDef),
+                7 => list.OrderBy(e => e.stuffDef),
+                8 => list.OrderBy(e => (e.inspiredCreativity ? 1 : 0) + (e.productionSpecialist ? 2 : 0)),
                 _ => list.OrderBy(e => e.gameTicks)
             };
             return (s_sortAsc ? ordered : ordered.Reverse()).ToList();
         }
 
-        // ===== one-line cell renderers (truncate + tooltip) =====
+        // ===== one-line cell renderers =====
         private static void DrawCellOneLine(Rect r, string text)
         {
             r = r.ContractedBy(4f, 0f);
@@ -579,7 +559,7 @@ namespace QualityInsights.UI
             Text.Anchor = TextAnchor.MiddleLeft;
 
             string t = text ?? string.Empty;
-            string shown = t.Truncate(r.width);   // <-- no global cache
+            string shown = t.Truncate(r.width);
             Widgets.Label(r, shown);
             if (!string.IsNullOrEmpty(t) && shown != t) TooltipHandler.TipRegion(r, t);
 
@@ -596,7 +576,7 @@ namespace QualityInsights.UI
             Text.Anchor = TextAnchor.MiddleRight;
 
             string t = text ?? string.Empty;
-            string shown = t.Truncate(r.width);   // <-- no global cache
+            string shown = t.Truncate(r.width);
             Widgets.Label(r, shown);
             if (!string.IsNullOrEmpty(t) && shown != t) TooltipHandler.TipRegion(r, t);
 
@@ -625,7 +605,7 @@ namespace QualityInsights.UI
         private static void DrawThingWithIconOneLine(Rect r, string thingDefName)
         {
             r = r.ContractedBy(2f, 2f);
-            var left  = r.LeftPartPixels(r.height);                  // square icon
+            var left  = r.LeftPartPixels(r.height);
             var right = new Rect(r.x + left.width + 4f, r.y, r.width - left.width - 4f, r.height);
 
             var def = DefDatabase<ThingDef>.GetNamedSilentFail(thingDefName);
@@ -672,19 +652,17 @@ namespace QualityInsights.UI
         {
             string label = pawnNameOrNull ?? "Unknown";
             r = r.ContractedBy(2f, 2f);
-            var left  = r.LeftPartPixels(r.height); // portrait square
+            var left  = r.LeftPartPixels(r.height);
             var right = new Rect(r.x + left.width + 4f, r.y, r.width - left.width - 4f, r.height);
 
             Pawn p = TryFindPawnByShortName(label);
             if (p != null)
             {
-                // cached portrait
                 var tex = PortraitsCache.Get(p, new Vector2(left.width, left.height), Rot4.South, default, 1.0f);
                 GUI.DrawTexture(left, tex);
             }
             else
             {
-                // fallback: skill/pawn silhouette from Thing icon set would be ideal; else small white box
                 GUI.DrawTexture(left, BaseContent.GreyTex);
             }
 
@@ -696,7 +674,6 @@ namespace QualityInsights.UI
         {
             if (string.IsNullOrEmpty(labelShort)) return null;
 
-            // Current map first
             var map = Find.CurrentMap;
             IEnumerable<Pawn> cands = map?.mapPawns?.AllPawnsSpawned ?? Enumerable.Empty<Pawn>();
 
@@ -705,7 +682,6 @@ namespace QualityInsights.UI
                 string.Equals(p.LabelShort,    labelShort, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(p?.Name?.ToStringShort, labelShort, StringComparison.OrdinalIgnoreCase));
 
-            // If not on map, try world pawns/colonists in caravan etc.
             if (found == null)
             {
                 var world = Find.WorldPawns?.AllPawnsAliveOrDead ?? Enumerable.Empty<Pawn>();
@@ -735,14 +711,12 @@ namespace QualityInsights.UI
             var files = di.GetFiles("QualityInsights_*.csv")
                         .OrderBy(f => f.CreationTimeUtc).ToList();
 
-            // cap by count
             while (s.maxExportFiles > 0 && files.Count > s.maxExportFiles)
             {
                 files[0].Delete();
                 files.RemoveAt(0);
             }
 
-            // cap by size
             long maxBytes = (long)Math.Max(0, s.maxExportFolderMB) * 1024L * 1024L;
             if (maxBytes > 0)
             {
@@ -773,12 +747,14 @@ namespace QualityInsights.UI
             string path  = Path.Combine(ExportDir, $"QualityInsights_{stamp}.csv");
 
             var sb = new StringBuilder();
-            sb.AppendLine("Ticks,TimeAgo,Pawn,Skill,Level,Quality,Thing,Stuff,Materials,Inspired,ProductionSpecialist");
+            sb.AppendLine("Ticks,TimeAgo,PlayTime,Pawn,Skill,Level,Quality,Thing,Stuff,Materials,Inspired,ProductionSpecialist");
             foreach (var e in comp.entries.OrderBy(x => x.gameTicks))
             {
+                string rl = e.HasPlayStamp ? FormatPlayTime(comp.PlaySecondsAccum - e.playSecondsAtLog) : "-";
                 sb.AppendLine(string.Join(",",
                     e.gameTicks,
                     e.TimeAgoString,
+                    rl,
                     Escape(e.pawnName),
                     Escape(e.skillDef),
                     e.skillLevelAtFinish,
@@ -797,7 +773,6 @@ namespace QualityInsights.UI
             PruneExportFolder();
             Messages.Message($"Exported to {path}", MessageTypeDefOf.TaskCompletion, false);
         }
-
 
         private static string Escape(string s) => '"' + (s ?? string.Empty).Replace("\"", "\"\"") + '"';
     }
