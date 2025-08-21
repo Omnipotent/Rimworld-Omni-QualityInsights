@@ -49,6 +49,7 @@ namespace QualityInsights.Patching
         private static readonly Dictionary<int, BuildCtx> _buildCtx = new();
         private static readonly HashSet<int> _bumping = new();
         [ThreadStatic] internal static bool _samplingNoInspiration;
+        [ThreadStatic] private static int _afterSetQDepth;
 
         static QualityPatches()
         {
@@ -65,7 +66,7 @@ namespace QualityInsights.Patching
             {
                 harmony.Patch(
                     make,
-                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Prefix)),
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Prefix)),
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(MakeRecipeProducts_Postfix))
                 );
             }
@@ -88,7 +89,7 @@ namespace QualityInsights.Patching
             {
                 harmony.Patch(
                     mi,
-                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix)) { priority = Priority.High },
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Prefix)) { priority = Priority.High },
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(GenerateQuality_Postfix)));
                 if (DebugLogs)
                     Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (Pawn,SkillDef,...)");
@@ -153,7 +154,7 @@ namespace QualityInsights.Patching
                 });
             if (complete != null)
                 harmony.Patch(complete,
-                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Prefix)),
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Prefix)),
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(CompleteConstruction_Postfix)));
             else
                 Log.Warning("[QualityInsights] Could not find Frame.CompleteConstruction(Pawn).");
@@ -531,138 +532,158 @@ namespace QualityInsights.Patching
 
         public static void AfterSetQuality(CompQuality __instance, QualityCategory q)
         {
-            var thing = __instance?.parent;
-            if (thing == null)
+            // --- Reentrancy shield (covers other mods re-calling SetQuality) ---
+            if (++_afterSetQDepth > 3)
             {
-                if (DebugLogs) Log.Message("[QI] AfterSetQuality: parent thing was null");
-                _currentPawn = null; _currentSkill = null; _forcedQuality = null;
+                try { if (DebugLogs) Log.Warning("[QI] AfterSetQuality: excessive re-entrancy; aborting."); } catch { }
+                _afterSetQDepth--;
                 return;
             }
 
-            // Local helper so we always clean caches even on early exits.
-            void CleanupCaches(Thing t)
+            try
             {
-                try { _productToWorker.Remove(t); } catch { }
-                _matsById.Remove(t.thingIDNumber);
-
-                if (t is MinifiedThing mm && mm.InnerThing != null)
+                var thing = __instance?.parent;
+                if (thing == null)
                 {
-                    try { _productToWorker.Remove(mm.InnerThing); } catch { }
-                    _matsById.Remove(mm.InnerThing.thingIDNumber);
+                    if (DebugLogs) Log.Message("[QI] AfterSetQuality: parent thing was null");
+                    _currentPawn = null; _currentSkill = null; _forcedQuality = null;
+                    return;
                 }
-            }
 
-            int id = thing.thingIDNumber;
-
-            SkillDef skill = ResolveSkillForThing(thing, _currentSkill);
-
-            Pawn worker = _currentPawn ?? _currentWorkerFromRecipe;
-            if (worker == null && _productToWorker.TryGetValue(thing, out var cached))
-            {
-                worker = cached;
-                if (DebugLogs) Log.Message($"[QI] Resolved worker via cache: {worker.LabelShortCap} for {thing.LabelCap}");
-                try { _productToWorker.Remove(thing); } catch { }
-            }
-
-            // Ignore non-player / unknown workers (filters worldgen, traders, raids, etc.)
-            if (worker == null || worker.Faction != Faction.OfPlayer)
-            {
-                CleanupCaches(thing);
-                goto ClearAndReturn;
-            }
-
-            QualityCategory? forced = _forcedQuality;
-
-            if (QualityInsightsMod.Settings.enableCheat && forced == null && worker != null)
-                forced = TryComputeCheatOverride(worker, skill);
-
-            if (QualityInsightsMod.Settings.enableCheat && forced.HasValue && q < forced.Value)
-            {
-                if (_bumping.Contains(id)) goto AfterBump;
-
-                try
+                // Local helper so we always clean caches even on early exits.
+                void CleanupCaches(Thing t)
                 {
-                    _bumping.Add(id);
+                    try { _productToWorker.Remove(t); } catch { }
+                    _matsById.Remove(t.thingIDNumber);
 
-                    var art = thing.TryGetComp<CompArt>();
-                    if (art != null && !art.Active && worker != null)
+                    if (t is MinifiedThing mm && mm.InnerThing != null)
                     {
-                        try { art.InitializeArt(worker); } catch { }
+                        try { _productToWorker.Remove(mm.InnerThing); } catch { }
+                        _matsById.Remove(mm.InnerThing.thingIDNumber);
                     }
-
-                    var ctx = ArtGenerationContext.Colony;
-                    __instance.SetQuality(forced.Value, ctx);
-
-                    if (DebugLogs) Log.Message($"[QI] Bumped {thing.LabelCap} from {q} -> {forced.Value} (ctx={ctx})");
-                    q = forced.Value;
                 }
-                catch { }
-                finally { _bumping.Remove(id); }
-            }
-        AfterBump:
 
-            int now = Find.TickManager.TicksGame;
+                int id = thing.thingIDNumber;
 
-            if (_logGuard.TryGetValue(id, out var g) && g.q == q && now - g.tick < 120)
-            {
-                if (DebugLogs)
-                    Log.Message($"[QI] Suppressed duplicate log for {thing.LabelCap} (q={q}) within {now - g.tick} ticks.");
-                CleanupCaches(thing);
-                goto ClearAndReturn;
-            }
-            _logGuard[id] = (now, q);
+                SkillDef skill = ResolveSkillForThing(thing, _currentSkill);
 
-            if ((now % 5000) == 0 && _logGuard.Count > 512)
-            {
-                var cutoff = now - 10000;
-                foreach (var key in _logGuard.Where(kv => kv.Value.tick < cutoff).Select(kv => kv.Key).ToList())
-                    _logGuard.Remove(key);
-            }
-
-            if (DebugLogs)
-                Log.Message($"[QI] SetQuality: thing={thing.LabelCap} result={q} worker={P(worker)} skill={S(skill)}");
-
-            if (QualityInsightsMod.Settings.enableLogging)
-            {
-                try
+                Pawn worker = _currentPawn ?? _currentWorkerFromRecipe;
+                if (worker == null && _productToWorker.TryGetValue(thing, out var cached))
                 {
-                    var comp = QualityLogComponent.Ensure(Current.Game);
-
-                    var matsForLog = GetMaterialsFor(thing);
-
-                    if (DebugLogs)
-                        Log.Message("[QI] MatsForLog=" + (matsForLog != null ? string.Join(",", matsForLog) : "<none>")
-                                    + " stuff=" + (thing.Stuff?.defName ?? "<none>")
-                                    + " for " + thing.LabelCap);
-
-                    comp.Add(new QualityLogEntry
-                    {
-                        thingDef = thing.def?.defName ?? "Unknown",
-                        stuffDef = thing.Stuff?.defName,
-                        quality  = q,
-                        pawnName = worker?.Name?.ToStringShort ?? worker?.LabelShort ?? "Unknown",
-                        skillDef = skill?.defName ?? "Unknown",
-                        skillLevelAtFinish   = worker?.skills?.GetSkill(skill)?.Level ?? -1,
-                        inspiredCreativity   = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
-                        productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityRules.IsProductionSpecialistFor(worker, skill)),
-                        gameTicks = Find.TickManager.TicksGame,
-                        mats      = matsForLog
-                    });
+                    worker = cached;
+                    if (DebugLogs) Log.Message($"[QI] Resolved worker via cache: {worker.LabelShortCap} for {thing.LabelCap}");
+                    try { _productToWorker.Remove(thing); } catch { }
                 }
-                catch { }
+
+                // Ignore non-player / unknown workers (filters worldgen, traders, raids, etc.)
+                if (worker == null || worker.Faction != Faction.OfPlayer)
+                {
+                    CleanupCaches(thing);
+                    goto ClearAndReturn;
+                }
+
+                QualityCategory? forced = _forcedQuality;
+                if (QualityInsightsMod.Settings.enableCheat && forced == null && worker != null)
+                    forced = TryComputeCheatOverride(worker, skill);
+
+                // Safe "bump" (single hop). If something re-enters, we bail early via _bumping + depth guard.
+                if (QualityInsightsMod.Settings.enableCheat && forced.HasValue && q < forced.Value)
+                {
+                    if (_bumping.Contains(id)) goto AfterBump;
+
+                    try
+                    {
+                        _bumping.Add(id);
+
+                        var art = thing.TryGetComp<CompArt>();
+                        if (art != null && !art.Active && worker != null)
+                        {
+                            try { art.InitializeArt(worker); } catch { /* never break */ }
+                        }
+
+                        var ctx = ArtGenerationContext.Colony;
+                        __instance.SetQuality(forced.Value, ctx); // re-enters postfix once
+                        if (DebugLogs) Log.Message($"[QI] Bumped {thing.LabelCap} from {q} -> {forced.Value} (ctx={ctx})");
+                        q = forced.Value;
+                    }
+                    catch { /* never break */ }
+                    finally { _bumping.Remove(id); }
+                }
+            AfterBump:
+
+                int now = Find.TickManager?.TicksGame ?? 0;
+
+                if (_logGuard.TryGetValue(id, out var g) && g.q == q && now - g.tick < 120)
+                {
+                    if (DebugLogs)
+                        Log.Message($"[QI] Suppressed duplicate log for {thing.LabelCap} (q={q}) within {now - g.tick} ticks.");
+                    CleanupCaches(thing);
+                    goto ClearAndReturn;
+                }
+                _logGuard[id] = (now, q);
+
+                if (now != 0 && (now % 5000) == 0 && _logGuard.Count > 512)
+                {
+                    var cutoff = now - 10000;
+                    foreach (var key in _logGuard.Where(kv => kv.Value.tick < cutoff).Select(kv => kv.Key).ToList())
+                        _logGuard.Remove(key);
+                }
+
+                if (DebugLogs)
+                    Log.Message($"[QI] SetQuality: thing={thing.LabelCap} result={q} worker={P(worker)} skill={S(skill)}");
+
+                if (QualityInsightsMod.Settings.enableLogging)
+                {
+                    try
+                    {
+                        var comp = QualityLogComponent.Ensure(Current.Game);
+                        var matsForLog = GetMaterialsFor(thing);
+
+                        if (DebugLogs)
+                            Log.Message("[QI] MatsForLog=" + (matsForLog != null ? string.Join(",", matsForLog) : "<none>")
+                                        + " stuff=" + (thing.Stuff?.defName ?? "<none>")
+                                        + " for " + thing.LabelCap);
+
+                        comp.Add(new QualityLogEntry
+                        {
+                            thingDef = thing.def?.defName ?? "Unknown",
+                            stuffDef = thing.Stuff?.defName,
+                            quality  = q,
+                            pawnName = worker?.Name?.ToStringShort ?? worker?.LabelShort ?? "Unknown",
+                            skillDef = skill?.defName ?? "Unknown",
+                            skillLevelAtFinish   = worker?.skills?.GetSkill(skill)?.Level ?? -1,
+                            inspiredCreativity   = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
+                            productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityRules.IsProductionSpecialistFor(worker, skill)),
+                            gameTicks = now,
+                            mats      = matsForLog
+                        });
+                    }
+                    catch { /* never break gameplay */ }
+                }
+
+                // Always drop caches for this thing (and inner thing) after we’ve attempted to log it.
+                CleanupCaches(thing);
+
+            ClearAndReturn:
+                _currentPawn = null;
+                _currentSkill = null;
+                _forcedQuality = null;
+                _currentWorkerFromRecipe = null;
+                // Do NOT clear _currentMats here; it's overwritten on the next recipe prefix.
+                _hadInspirationAtRoll = null;
+                _wasProdSpecAtRoll = null;
             }
-
-            // Always drop caches for this thing (and inner thing) after we’ve attempted to log it.
-            CleanupCaches(thing);
-
-        ClearAndReturn:
-            _currentPawn = null;
-            _currentSkill = null;
-            _forcedQuality = null;
-            _currentWorkerFromRecipe = null;
-            // Do NOT clear _currentMats here; it's overwritten on the next recipe prefix.
-            _hadInspirationAtRoll = null;
-            _wasProdSpecAtRoll = null;
+            catch (Exception ex)
+            {
+                // Final safety net: never let SetQuality kill the game.
+                try { Log.Warning("[QualityInsights] AfterSetQuality swallowed exception: " + ex); } catch { }
+                _currentPawn = null; _currentSkill = null; _forcedQuality = null;
+                _currentWorkerFromRecipe = null; _hadInspirationAtRoll = null; _wasProdSpecAtRoll = null;
+            }
+            finally
+            {
+                _afterSetQDepth = Math.Max(0, _afterSetQDepth - 1);
+            }
         }
     }
 }

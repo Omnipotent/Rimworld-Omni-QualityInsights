@@ -282,8 +282,74 @@ namespace QualityInsights.UI
             if (uiLastProdSpec)
                 ls.Label("Role: Production Specialist (+1 tier)");
 
+            // Dev-only validation button, bottom-right
+            if (Prefs.DevMode && selectedPawn != null)
+            {
+                const float bw = 132f;
+                const float bh = 24f;
+                const float pad = 6f;
+
+                var br = new Rect(
+                    inRect.width  - bw - pad,
+                    inRect.height - bh - pad,
+                    bw, bh);
+
+                if (Widgets.ButtonText(br, "Validate 100k"))
+                    DevValidateNow(selectedPawn);
+            }
+
             ls.End();
         }
+
+        private void DevValidateNow(Pawn pawn)
+        {
+            const int N = 100_000;
+
+            var cheatWas = QualityInsightsMod.Settings.enableCheat;
+            Dictionary<QualityCategory, float> big;
+
+            QualityPatches._suppressInspirationSideEffects = true;
+            QualityInsightsMod.Settings.enableCheat = false;
+            QualityPatches._samplingNoInspiration = true;
+
+            // Deterministic seed
+            int seed = Gen.HashCombineInt(pawn.thingIDNumber, Gen.HashCombineInt(builtDef?.shortHash ?? 0, N));
+
+            Rand.PushState(seed);
+            try
+            {
+                big = QualityEstimator.EstimateBaseline(pawn, SkillDefOf.Construction, builtDef, N);
+            }
+            finally
+            {
+                Rand.PopState();
+                QualityPatches._samplingNoInspiration = false;
+                QualityInsightsMod.Settings.enableCheat = cheatWas;
+                QualityPatches._suppressInspirationSideEffects = false;
+            }
+
+            int boost = (uiLastInspired ? 2 : 0) + (uiLastProdSpec ? 1 : 0);
+            var bigShift = boost > 0 ? ShiftTiers(big, boost) : big;
+
+            var ui = GetChances(pawn);
+
+            float maxAbs = 0f;
+            var sb = new System.Text.StringBuilder();
+            foreach (var q in TierOrder)
+            {
+                ui.TryGetValue(q, out var pUI);
+                bigShift.TryGetValue(q, out var pBig);
+                float d = Mathf.Abs(pUI - pBig);
+                maxAbs = Mathf.Max(maxAbs, d);
+                sb.AppendLine($"{q,-10} UI={pUI:P2}  big@{N}={pBig:P2}  Δ={d:P3}");
+            }
+
+            string header = $"[QI] CONSTRUCTION VALIDATION ({N} samples)  Pawn={pawn.LabelShortCap}  BuiltDef={(builtDef?.defName ?? "<null>")}";
+            Log.Message($"{header}\n{sb}\nMax |Δ| = {maxAbs:P3}");
+            try { GUIUtility.systemCopyBuffer = $"{header}\n{sb}\nMax |Δ| = {maxAbs:P3}"; } catch { }
+            Messages.Message("[QI] Validation complete (details copied to clipboard).", MessageTypeDefOf.TaskCompletion, false);
+        }
+
 
         private static void DrawPercentRow(Listing_Standard ls, string label, float p01)
         {

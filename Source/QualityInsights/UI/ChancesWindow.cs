@@ -215,6 +215,63 @@ namespace QualityInsights.UI
                 (b.skills?.GetSkill(skill)?.Level ?? -1).CompareTo(a.skills?.GetSkill(skill)?.Level ?? -1));
         }
 
+        private void DevValidateNow(Pawn pawn, SkillDef skill, ThingDef? product)
+        {
+            const int N = 100_000;
+
+            // Run a big-N baseline with the same sampling safety we use in GetChances:
+            var cheatWas = QualityInsightsMod.Settings.enableCheat;
+            Dictionary<QualityCategory, float> big;
+
+            QualityPatches._suppressInspirationSideEffects = true; // no vanilla insp messages
+            QualityInsightsMod.Settings.enableCheat = false;        // cheat must never bias sampling
+            QualityPatches._samplingNoInspiration = true;           // per-roll: force no inspiration
+
+            // Deterministic seed so repeated presses are stable
+            int seed = Gen.HashCombineInt(pawn.thingIDNumber,
+                        Gen.HashCombineInt(product?.shortHash ?? (selectedRecipe?.shortHash ?? 0), N));
+
+            Rand.PushState(seed);
+            try
+            {
+                big = (product != null)
+                    ? QualityEstimator.EstimateBaseline(pawn, skill, product, N)
+                    : QualityEstimator.EstimateBaseline(pawn, skill, N);
+            }
+            finally
+            {
+                Rand.PopState();
+                QualityPatches._samplingNoInspiration = false;
+                QualityInsightsMod.Settings.enableCheat = cheatWas;
+                QualityPatches._suppressInspirationSideEffects = false;
+            }
+
+            // Shift to match what the UI is currently showing
+            int boost = (uiLastInspired ? 2 : 0) + (uiLastProdSpec ? 1 : 0);
+            var bigShift = boost > 0 ? ShiftTiers(big, boost) : big;
+
+            // Compare vs the UI (which uses the cached chances)
+            var ui = GetChances(pawn, skill, product);
+
+            float maxAbs = 0f;
+            var sb = new System.Text.StringBuilder();
+            foreach (var q in TierOrder)
+            {
+                ui.TryGetValue(q, out var pUI);
+                bigShift.TryGetValue(q, out var pBig);
+                float d = Mathf.Abs(pUI - pBig);
+                maxAbs = Mathf.Max(maxAbs, d);
+                sb.AppendLine($"{q,-10} UI={pUI:P2}  big@{N}={pBig:P2}  Δ={d:P3}");
+            }
+
+            string header = $"[QI] VALIDATION ({N} samples)  Pawn={pawn.LabelShortCap}  Skill={skill?.defName}  Recipe/Prod={(selectedRecipe?.defName ?? product?.defName ?? "<none>")}";
+            Log.Message($"{header}\n{sb}\nMax |Δ| = {maxAbs:P3}");
+
+            // Make it easy to find later (and avoid getting buried): copy to clipboard + toast
+            try { GUIUtility.systemCopyBuffer = $"{header}\n{sb}\nMax |Δ| = {maxAbs:P3}"; } catch { }
+            Messages.Message("[QI] Validation complete (details copied to clipboard).", MessageTypeDefOf.TaskCompletion, false);
+        }
+
         private Dictionary<QualityCategory, float> GetChances(Pawn pawn, SkillDef skill, ThingDef? product)
         {
             // compute dynamic bits that affect probabilities
@@ -448,13 +505,19 @@ namespace QualityInsights.UI
             var chances = GetChances(pawn, skill, cachedProductDef);
             if (QualityInsightsMod.Settings.enableDebugLogs && Prefs.DevMode)
             {
-                float sumUI = 0f;
-                var uiDump = string.Join(", ", TierOrder.Select(q =>
+                int now = Find.TickManager?.TicksGame ?? 0;
+                const int LogEveryTicks = 120; // ~2 times/sec (60 ticks/sec)
+                if (now >= _nextLogTick)
                 {
-                    var v = GetPct(chances, q); sumUI += v; return $"{q}:{v:P2}";
-                }));
-                Log.Message($"[QI] UI WillShow       | {uiDump} | Sum={sumUI:F3}");
-                Log.Message($"[QI] Context | Pawn={pawn?.LabelShortCap} | InspiredProp={uiLastInspired} | ProdSpec={uiLastProdSpec} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName} | TierBoost={uiLastTierBoost}");
+                    float sumUI = 0f;
+                    var uiDump = string.Join(", ", TierOrder.Select(q =>
+                    {
+                        var v = GetPct(chances, q); sumUI += v; return $"{q}:{v:P2}";
+                    }));
+                    Log.Message($"[QI] UI WillShow       | {uiDump} | Sum={sumUI:F3}");
+                    Log.Message($"[QI] Context | Pawn={pawn?.LabelShortCap} | InspiredProp={uiLastInspired} | ProdSpec={uiLastProdSpec} | Skill={cachedSkill?.defName} | Recipe={selectedRecipe?.defName} | TierBoost={uiLastTierBoost}");
+                    _nextLogTick = now + LogEveryTicks;
+                }
             }
 
             // Show all tiers so the rows add up to 100%
@@ -479,6 +542,23 @@ namespace QualityInsights.UI
                 ls.Label("Role: Production Specialist (+1 tier)");
 
             ls.End();
+
+            // Dev-only validation button, bottom-right, leaving room for the resize grip
+            if (Prefs.DevMode)
+            {
+                const float bw = 132f;
+                const float bh = 24f;
+                const float pad = 6f;
+                const float gripSize = 16f; // matches our resize grip below
+
+                var br = new Rect(
+                    inRect.width  - bw  - pad,
+                    inRect.height - bh  - gripSize - (pad * 2f),  // sit above the grip
+                    bw, bh);
+
+                if (Widgets.ButtonText(br, "Validate 100k"))
+                    DevValidateNow(pawn, skill, cachedProductDef);
+            }
 
             // --- Resize Grip Overlay ---
             if (resizeable)
