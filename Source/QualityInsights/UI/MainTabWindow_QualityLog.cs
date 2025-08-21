@@ -64,12 +64,6 @@ namespace QualityInsights.UI
         // --- CSV helpers ---
         private static string s_lastExportPath = string.Empty;
 
-        // Try to grab a folder icon if you ship one; falls back to text button automatically
-        private static readonly Texture2D TexOpenFolder =
-            ContentFinder<Texture2D>.Get("UI/Icons/OpenFolder", false)
-            ?? ContentFinder<Texture2D>.Get("UI/Buttons/OpenFolder", false)
-            ?? null;
-
         // Cross-platform “reveal in Finder/Explorer/Files”
         private static void OpenInFileBrowser(string targetPath)
         {
@@ -127,7 +121,7 @@ namespace QualityInsights.UI
                 }
 
                 // --- Linux/Other ---
-                System.Diagnostics.Process.Start("xdg-open", "\"" + dir + "\"");
+                System.Diagnostics.Process.Start("xdg-open", dir);
             }
             catch (System.Exception ex)
             {
@@ -188,7 +182,6 @@ namespace QualityInsights.UI
             }
         }
 
-
         public override void DoWindowContents(Rect rect)
         {
             // apply user-selected font + row/header sizes
@@ -199,7 +192,7 @@ namespace QualityInsights.UI
 
             try
             {
-                var comp = Current.Game.GetComponent<QualityLogComponent>();
+                var comp = QualityLogComponent.Ensure(Current.Game);
                 var rows = comp.entries.AsEnumerable();
 
                 // ===== Header (filters + export/reload) =====
@@ -272,38 +265,22 @@ namespace QualityInsights.UI
                 // ===== Footer =====
                 var footer = new Rect(0, rect.height - FooterH, rect.width, FooterH);
 
-                // Right-aligned cluster: Export, Reload, Settings
+                // right-side buttons (excerpt)
                 float bw = 100f, gap = 8f;
-                float extraW = (TexOpenFolder != null ? (28f + gap) : (90f + gap)); // icon or text fallback
-                float xRight = footer.xMax - (bw * 3 + gap * 2 + extraW) - 6f;
+                float xRight = footer.xMax - (bw * 3 + gap * 2 + (90f + gap)) - 6f; // 90px for Open folder
 
                 // Export
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "QI_ExportCSV".Translate()))
                     ExportCSV(comp);
                 xRight += bw + gap;
 
-                // NEW: Open folder button (icon if available, otherwise a small text button)
-                bool openClicked = false;
-                if (TexOpenFolder != null)
+                // Open folder (text only)
+                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, 90f, 28f), "Open folder"))
                 {
-                    var r = new Rect(xRight, footer.y + 3f, 28f, 28f);
-                    openClicked = Widgets.ButtonImage(r, TexOpenFolder);
-                    TooltipHandler.TipRegion(r, "Open export folder");
-                    xRight += 28f + gap;
-                }
-                else
-                {
-                    openClicked = Widgets.ButtonText(new Rect(xRight, footer.y + 3f, 90f, 28f), "Open folder");
-                    xRight += 90f + gap;
-                }
-                if (openClicked)
-                {
-                    // Prefer the last explicit file if it exists, otherwise open the save-data directory
-                    string target = File.Exists(s_lastExportPath)
-                        ? s_lastExportPath
-                        : Path.Combine(GenFilePaths.SaveDataFolderPath, "QualityInsights_Log.csv");
+                    string target = File.Exists(s_lastExportPath) ? s_lastExportPath : ExportDir;
                     OpenInFileBrowser(target);
                 }
+                xRight += 90f + gap;
 
                 // Reload
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Reload"))
@@ -367,20 +344,6 @@ namespace QualityInsights.UI
             string label = string.Join(", ", matDefNames);
             DrawCellOneLine(textRect, label);
             TooltipHandler.TipRegion(r, label);
-        }
-
-
-        private static void NormalizeCols(float[] a)
-        {
-            // clamp to a minimum and renormalize to sum == 1
-            float sum = 0f;
-            for (int i = 0; i < a.Length; i++)
-            {
-                a[i] = Mathf.Max(a[i], ColMinFrac);
-                sum += a[i];
-            }
-            if (sum <= 0f) sum = 1f;
-            for (int i = 0; i < a.Length; i++) a[i] /= sum;
         }
 
         // ----------------- LOG VIEW (scaled) -----------------
@@ -754,6 +717,46 @@ namespace QualityInsights.UI
             return found;
         }
 
+        private static string ExportDir =>
+            Path.Combine(GenFilePaths.SaveDataFolderPath, "QualityInsights", "Exports");
+
+        private static void EnsureExportDir()
+        {
+            if (!Directory.Exists(ExportDir))
+                Directory.CreateDirectory(ExportDir);
+        }
+
+        private static void PruneExportFolder()
+        {
+            var s  = QualityInsightsMod.Settings;
+            var di = new DirectoryInfo(ExportDir);
+            if (!di.Exists) return;
+
+            var files = di.GetFiles("QualityInsights_*.csv")
+                        .OrderBy(f => f.CreationTimeUtc).ToList();
+
+            // cap by count
+            while (s.maxExportFiles > 0 && files.Count > s.maxExportFiles)
+            {
+                files[0].Delete();
+                files.RemoveAt(0);
+            }
+
+            // cap by size
+            long maxBytes = (long)Math.Max(0, s.maxExportFolderMB) * 1024L * 1024L;
+            if (maxBytes > 0)
+            {
+                long total = files.Sum(f => f.Length);
+                int i = 0;
+                while (total > maxBytes && i < files.Count)
+                {
+                    total -= files[i].Length;
+                    files[i].Delete();
+                    i++;
+                }
+            }
+        }
+
         private static void DrawZebra(Rect r)
         {
             var old = GUI.color;
@@ -762,9 +765,13 @@ namespace QualityInsights.UI
             GUI.color = old;
         }
 
-        // ===== CSV export =====
         private static void ExportCSV(QualityLogComponent comp)
         {
+            EnsureExportDir();
+
+            string stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+            string path  = Path.Combine(ExportDir, $"QualityInsights_{stamp}.csv");
+
             var sb = new StringBuilder();
             sb.AppendLine("Ticks,TimeAgo,Pawn,Skill,Level,Quality,Thing,Stuff,Materials,Inspired,ProductionSpecialist");
             foreach (var e in comp.entries.OrderBy(x => x.gameTicks))
@@ -782,13 +789,12 @@ namespace QualityInsights.UI
                     e.inspiredCreativity,
                     e.productionSpecialist));
             }
-            var dir = GenFilePaths.SaveDataFolderPath;
-            var path = Path.Combine(dir, "QualityInsights_Log.csv");
+
             File.WriteAllText(path, sb.ToString());
             s_lastExportPath = path;
-            // Optional nicety: copy the path so users can Ctrl+V it if needed
             GUIUtility.systemCopyBuffer = path;
 
+            PruneExportFolder();
             Messages.Message($"Exported to {path}", MessageTypeDefOf.TaskCompletion, false);
         }
 

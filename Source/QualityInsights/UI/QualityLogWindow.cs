@@ -11,11 +11,11 @@ namespace QualityInsights.UI
         // custom window-drag state (we’ll manage movement ourselves)
         private bool _draggingWindow;
         private Vector2 _dragStartMouse;
+        private Vector2 _dragStartMouseScreen;
         private Vector2 _dragStartWinPos;
 
         // height of our internal draggable strip
         private const float DragBarH = 22f;
-
         public override Vector2 InitialSize => new(1100f, 720f);
 
         public QualityLogWindow()
@@ -27,7 +27,7 @@ namespace QualityInsights.UI
 
             resizeable = true;
             absorbInputAroundWindow = _draggingWindow;
-            preventCameraMotion     = _draggingWindow;
+            preventCameraMotion = _draggingWindow;
         }
 
         public override void DoWindowContents(Rect inRect)
@@ -39,20 +39,23 @@ namespace QualityInsights.UI
             var dragBar = new Rect(inRect.x, inRect.y, inRect.width, DragBarH);
             Widgets.DrawLightHighlight(dragBar);
 
+            var ev = Event.current;
+
             if (!_tab.IsDraggingSplitter)
             {
-                var ev = Event.current;
                 if (ev.type == EventType.MouseDown && ev.button == 0 && dragBar.Contains(ev.mousePosition))
                 {
                     _draggingWindow = true;
-                    _dragStartMouse = ev.mousePosition;       // local coords
-                    _dragStartWinPos = windowRect.position;   // absolute window pos
+                    _dragStartMouseScreen = Verse.UI.MousePositionOnUIInverted; // SCREEN/UI space
+                    _dragStartWinPos      = windowRect.position;                 // absolute window pos
                     ev.Use();
                 }
                 else if (ev.type == EventType.MouseDrag && _draggingWindow && ev.button == 0)
                 {
-                    Vector2 delta = ev.mousePosition - _dragStartMouse; // local delta
-                    windowRect.position = _dragStartWinPos + delta;      // no clamp here
+                    // 1:1 movement in screen space
+                    Vector2 curScreen = Verse.UI.MousePositionOnUIInverted;
+                    Vector2 delta     = curScreen - _dragStartMouseScreen;
+                    windowRect.position = _dragStartWinPos + delta;
                     ev.Use();
                 }
                 else if ((ev.type == EventType.MouseUp || ev.rawType == EventType.MouseUp) && _draggingWindow)
@@ -68,6 +71,7 @@ namespace QualityInsights.UI
                     ev.Use();
                 }
             }
+
 
             // content group unchanged...
             var content = new Rect(inRect.x, inRect.y + DragBarH, inRect.width, inRect.height - DragBarH);
