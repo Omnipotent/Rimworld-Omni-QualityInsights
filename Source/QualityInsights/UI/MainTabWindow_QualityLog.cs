@@ -37,58 +37,62 @@ namespace QualityInsights.UI
         private const float QualBtnW  = 140f;     // wide enough for “Legendary”
         private const float SkillBtnW = 160f;     // most skills fit comfortably
 
-        // drag state
-        private static int   s_dragCol = -1;    // index of the column being dragged (splitter is on its right edge)
-        private static float s_dragStartX;      // screen X at mouse-down
-        private static float[] s_col = Array.Empty<float>();   // not nullable, init empty
-        private const float SplitterW = 10f;                   // easier to grab
+        // --- per-instance drag state (no cross-window fighting) ---
+        private int   _dragCol = -1;          // which splitter is being dragged (this instance only)
+        private float _dragStartX;            // local X at mouse-down
+        private const float SplitterW = 10f;
         private const float ColMinFrac = 0.06f;
+        public  bool IsDraggingSplitter => _dragCol >= 0;
 
-        // runtime (pixels) — only these move while dragging
-        private static float[] s_colPx = Array.Empty<float>();
-        private static float   s_lastTableW = -1f;
-        private const float    ColMinPx = 80f;
+        // --- per-instance pixel cache ---
+        private float[] _colPx = Array.Empty<float>();
+        private float   _lastTableW = -1f;
+        private const float ColMinPx = 80f;
+
+        // shared "layout version" so settings resets invalidate all instances
+        private static int s_layoutGen = 0;
+        private int _seenLayoutGen = -1;
+
 
         // Put near the top-level fields in MainTabWindow_QualityLog
         internal static List<float> DefaultColFractions() =>
             new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
 
         // Invalidate the pixel cache so next repaint rebuilds from Settings.colFractions
-        public static void InvalidateColumnLayout()
-        {
-            s_colPx = Array.Empty<float>();
-            s_lastTableW = -1f;
-            s_dragCol = -1;
-        }
+        public static void InvalidateColumnLayout() { s_layoutGen++; }
 
-        // Reset to defaults + invalidate + persist
         public static void ResetColumnsToDefaults()
         {
             QualityInsightsMod.Settings.colFractions = DefaultColFractions();
             QualityInsightsMod.Instance.WriteSettings();
-            InvalidateColumnLayout();
+            InvalidateColumnLayout(); // tell all instances to rebuild px cache
         }
-
 
         private void EnsureColPx(float tableW)
         {
             int n = ColHeaders.Length;
 
-            // sanity: make sure settings have exactly n fractions; if not, reset defaults
             var frac = QualityInsightsMod.Settings.colFractions;
             if (frac == null || frac.Count != n)
             {
-                frac = QualityInsightsMod.Settings.colFractions =
-                    new List<float> { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
+                frac = QualityInsightsMod.Settings.colFractions = DefaultColFractions();
+                InvalidateColumnLayout();
             }
 
-            // allocate first N-1 columns in pixels; last is auto-fill
-            if (s_colPx.Length != n - 1 || Mathf.Abs(s_lastTableW - tableW) > 0.5f || s_colPx.All(w => w <= 0f))
+            // if settings changed elsewhere, rebuild our cache
+            if (_seenLayoutGen != s_layoutGen)
             {
-                s_colPx = new float[n - 1];
+                _colPx = Array.Empty<float>();
+                _lastTableW = -1f;
+                _seenLayoutGen = s_layoutGen;
+            }
+
+            if (_colPx.Length != n - 1 || Mathf.Abs(_lastTableW - tableW) > 0.5f || _colPx.All(w => w <= 0f))
+            {
+                _colPx = new float[n - 1];
                 for (int i = 0; i < n - 1; i++)
-                    s_colPx[i] = Mathf.Max(ColMinPx, tableW * frac[i]);
-                s_lastTableW = tableW;
+                    _colPx[i] = Mathf.Max(ColMinPx, tableW * frac[i]);
+                _lastTableW = tableW;
             }
         }
 
@@ -106,13 +110,6 @@ namespace QualityInsights.UI
 
         public override void DoWindowContents(Rect rect)
         {
-            // // init working array for column widths from settings
-            if (s_dragCol < 0)
-            {
-                s_col = QualityInsightsMod.Settings.colFractions.ToArray();
-                NormalizeCols(s_col);
-            }
-
             // apply user-selected font + row/header sizes
             var oldFont = Text.Font;
             Text.Font = QualityInsightsMod.Settings.GetLogGameFont();
@@ -322,7 +319,7 @@ namespace QualityInsights.UI
             for (int i = 0; i < n; i++)
             {
                 float w = (i < n - 1)
-                    ? s_colPx[i]
+                    ? _colPx[i]
                     : Mathf.Max(ColMinPx, outRect.width - hx);
                 var hr = new Rect(outRect.x + hx, outRect.y, w, headerH);
 
@@ -357,8 +354,8 @@ namespace QualityInsights.UI
 
                     if (Event.current.type == EventType.MouseDown && split.Contains(Event.current.mousePosition))
                     {
-                        s_dragCol    = i;
-                        s_dragStartX = Event.current.mousePosition.x;
+                        _dragCol    = i;
+                        _dragStartX = Event.current.mousePosition.x;
                         Event.current.Use();
                     }
                 }
@@ -368,55 +365,51 @@ namespace QualityInsights.UI
             Widgets.DrawLineHorizontal(outRect.x, outRect.y + headerH - 1f, outRect.width);
 
             // ----- Handle splitter drag (if any) -----
-            if (s_dragCol >= 0)
+            if (_dragCol >= 0)
             {
                 if (Event.current.type == EventType.MouseDrag)
                 {
-                    float dx = Event.current.mousePosition.x - s_dragStartX;
-                    s_dragStartX = Event.current.mousePosition.x;
+                    float dx = Event.current.mousePosition.x - _dragStartX;
+                    _dragStartX = Event.current.mousePosition.x;
 
-                    int i = s_dragCol; // dragged col (0..n-2)
-                    float newW = Mathf.Max(ColMinPx, s_colPx[i] + dx);
+                    int i = _dragCol;
+                    float newW = Mathf.Max(ColMinPx, _colPx[i] + dx);
 
-                    // current auto-fill (last column)
-                    float used = 0f; for (int k = 0; k < s_colPx.Length; k++) used += s_colPx[k];
+                    float used = 0f; for (int k = 0; k < _colPx.Length; k++) used += _colPx[k];
                     float lastW = Mathf.Max(ColMinPx, outRect.width - used);
 
-                    // how much we’re asking from / giving to the last column
-                    float delta    = newW - s_colPx[i];
+                    float delta    = newW - _colPx[i];
                     float newLastW = lastW - delta;
-
-                    // clamp so last doesn't go below min
                     if (newLastW < ColMinPx)
                     {
                         float allowed = lastW - ColMinPx;
-                        newW     = s_colPx[i] + allowed;
+                        newW = _colPx[i] + allowed;
                         newLastW = ColMinPx;
                     }
 
-                    s_colPx[i] = newW; // last col remains implied
+                    _colPx[i] = newW;
                     Event.current.Use();
                 }
                 else if (Event.current.type == EventType.MouseUp || Event.current.rawType == EventType.MouseUp)
                 {
-                    s_dragCol = -1;
+                    _dragCol = -1;
 
-                    // persist: convert pixel widths back to fractions (including last)
-                    float used = 0f; for (int k = 0; k < s_colPx.Length; k++) used += s_colPx[k];
+                    float used = 0f; for (int k = 0; k < _colPx.Length; k++) used += _colPx[k];
                     float lastW = Mathf.Max(ColMinPx, outRect.width - used);
 
                     var fracs = new List<float>(n);
-                    for (int k = 0; k < s_colPx.Length; k++) fracs.Add(Mathf.Max(ColMinPx, s_colPx[k]) / outRect.width);
+                    for (int k = 0; k < _colPx.Length; k++) fracs.Add(Mathf.Max(ColMinPx, _colPx[k]) / outRect.width);
                     fracs.Add(lastW / outRect.width);
 
-                    // normalize tiny drift
                     float sum = fracs.Sum();
                     if (sum > 0f) for (int k = 0; k < fracs.Count; k++) fracs[k] /= sum;
 
                     QualityInsightsMod.Settings.colFractions = fracs;
                     QualityInsightsMod.Instance.WriteSettings();
+                    InvalidateColumnLayout(); // <- tells the *other* window to rebuild its px cache
                     Event.current.Use();
                 }
+
             }
 
             // ----- Sort after header interactions -----
@@ -428,7 +421,7 @@ namespace QualityInsights.UI
             Widgets.BeginScrollView(rowsOut, ref scroll, viewRect);
 
             // Precompute last-column width for the rows area (based on viewRect.width)
-            float usedPx = 0f; for (int k = 0; k < s_colPx.Length; k++) usedPx += s_colPx[k];
+            float usedPx = 0f; for (int k = 0; k < _colPx.Length; k++) usedPx += _colPx[k];
             float lastPxRows = Mathf.Max(ColMinPx, viewRect.width - usedPx);
 
             float y = 0f;
@@ -442,7 +435,7 @@ namespace QualityInsights.UI
 
                 for (int i = 0; i < n; i++)
                 {
-                    float w = (i < n - 1) ? s_colPx[i] : lastPxRows;
+                    float w = (i < n - 1) ? _colPx[i] : lastPxRows;
                     var cell = new Rect(x, y, w, rowH);
 
                     switch (i)
