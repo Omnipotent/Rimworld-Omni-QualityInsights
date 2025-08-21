@@ -7,7 +7,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 ### Quality Log (Table & Log Views)
 
 * Top-bar button opens a searchable, filterable log of all quality roll outcomes.
-* **Pop out / Dock toggle**  
+* **Pop out / Dock toggle**
   One button switches between a docked main-tab window and a floating window. Opening one closes the other, so only one is ever visible.
 * **Resizable table UI**
   * **Sortable columns** (click header).
@@ -17,52 +17,62 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Dynamic last column** auto-fills remaining width.
 * **Time columns (2):**
   * **Time** — in-game “time ago” (e.g. `2d 4h`).
-  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).  
+  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
     *Ignores time spent paused; updates live while unpaused.*
 * Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials** (distinct list with icons where available; otherwise shows Stuff).
 * **Duplicate suppression** (only one entry per thing even if multiple `SetQuality` calls land).
 * **CSV export** (+ **Open folder** button) with a **PlayTime** column matching the RL display.
 * Export folder **auto-prunes** by count/size (configurable).
 
-### Live Quality Odds Gizmo
+### Live Quality Odds – Work Tables **and Construction**
 
-* Appears on any work table with quality-producing recipes.
-* Choose a recipe + pawn and see **full Awful → Legendary odds**.
+* **Work tables:** choose a recipe + pawn and see **full Awful → Legendary odds**.
+* **Construction:** odds are available for **frames** *and* **blueprints** via a gizmo.
+  Pick a constructor pawn and view construction quality odds.
 * **Accurate skill resolver**
   * Uses recipe `workSkill` when present; otherwise infers: Construction (buildings), Artistic (CompArt/sculptures), Crafting (general).
 * **Boost-aware odds**
   * **Inspired Creativity**: +2 tiers (caps at Legendary).
   * **Production Specialist** (Ideology): +1 tier.
   * Legendary is **capped post-shift** if not allowed; overflow mass goes to Masterwork.
-* **Sampling uses the real game roll** (Harmony) for compatibility.
-* **Deterministic caching** keyed by pawn/recipe/boost mask/cheat flag for snappy UI.
+* **Deterministic, cached sampling**
+  * Sampling uses the real vanilla roll via Harmony; **cheat is always disabled during sampling** and inspiration side-effects are **suppressed** to keep the baseline clean.
+  * Results are cached using a stable key (pawn, recipe/builtDef, boost mask, cheat flag) for snappy UI.
+* **Dev-only validation**: “**Validate 100k**” button runs a large sample, compares vs. the UI, copies details to clipboard, and toasts a completion message.
 
 ### Construction Path Support
-* Hooks frames → completed buildings and attributes quality to the builder (handles minified furniture).
 
-### Optional Cheat Mode
-* Mod setting: “always roll at least the lowest tier whose probability ≥ threshold.”
+* Binds frame → completed building and attributes quality to the correct **builder pawn** (handles minified furniture).
+
+### Optional Dev Cheat (threshold-based, safe)
+
+* Mod setting: “always roll at least the highest tier whose probability ≥ threshold.”
+* **Never biases the odds UI** (cheat is force-disabled during sampling).
 * **Respects Legendary rules** (still requires inspiration/role to reach Legendary).
-* Never affects the sampling that powers the odds UI.
+* Implemented as a **safe single-hop bump** via `SetQuality`, with a reentrancy guard and art init safety (ensures `CompArt` is initialized when needed).
 
 ### Diagnostics & Developer Quality-of-Life
+
 * **Diagnostics** section in Mod Settings:
-  * **Enable debug logs** toggle (Dev Mode only) to emit detailed `[QI]` traces:
+  * **Enable debug logs** (Dev Mode only) to emit detailed `[QI]` traces:
     * Flags (Inspired/ProdSpec, tier boost, mask).
     * Raw vs. final shifted distributions.
-    * Context lines (pawn, skill, recipe).
+    * Context (pawn, skill, recipe/builtDef).
+* Dev-only “**Validate 100k**” buttons in both odds windows (work tables & construction), with results copied to clipboard for easy sharing.
 
 ## How It Works (accuracy & safety)
 
-* The odds UI samples the real `QualityUtility.GenerateQualityCreatedByPawn` via Harmony, with inspirations suppressed during sampling and the cheat disabled—then applies the **exact** tier shifts (+2 inspiration, +1 role) once, with a proper Legendary cap.
-* **Real-life play time** is tracked by a lightweight component that accumulates seconds **only while the game is unpaused**. Each log entry stores a play-time snapshot; the UI simply shows *(currentAccum − snapshot)*.  
-  Zero per-row work; the value is computed once per repaint.
+* The odds UI samples the real `QualityUtility.GenerateQualityCreatedByPawn` via Harmony. During sampling we:
+  * **Disable cheat**, **suppress inspiration side-effects**, and **strip inspiration** per roll to compute a true baseline.
+  * Apply tier shifts once (+2 inspiration, +1 role) with a correct Legendary cap.
+* Cheat uses a separate baseline estimation (also with cheat off / insp suppressed) and **only bumps one tier** safely if the target tier meets your threshold.
+* **Real-life play time** is tracked by a lightweight component that accumulates seconds **only while the game is unpaused**. Each log entry stores a play-time snapshot; the UI shows *(currentAccum − snapshot)*.
 
 ## Settings
 
 * **Enable quality logging** (table/log feature).
-* **Enable live chances widget** (gizmo on worktables).
-* **Enable dev cheat** + threshold slider.
+* **Enable live chances widget** (gizmo on worktables, frames & blueprints).
+* **Enable dev cheat** + **Min Cheat Chance** slider (0%–20%).
 * **Estimation samples** slider (performance/precision trade-off).
 * **Diagnostics → Enable debug logs** (verbose `[QI]` logs; Dev Mode only).
 * **Quality Log UI**
@@ -71,7 +81,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Reset column widths** (reverts to sensible defaults).
   * **Open quality log** (quick access).
 
-> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.  
+> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.
 > If you use versioned load folders (e.g. `1.5/` or `1.6/` in `About/LoadFolders.xml`), ensure the updated XML is copied to the **active** folder (`<modroot>/<version>/Languages/...`).
 
 ## Build
@@ -90,14 +100,15 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 
 * Click the **Quality Log** button to open the table (sort, resize, export). Use **Pop out/Dock** to switch window mode.
 * Select a **work table**, click the **Quality odds** gizmo, pick a recipe + pawn to view tier odds.
+* Select a **frame** (or **blueprint**) to use the **construction odds** gizmo; pick a constructor pawn to view tier odds.
 * Configure options in **Mod Settings** (cheat threshold/samples, diagnostics, UI preferences).
 
 ## Compatibility & Notes
 
 * Odds remain accurate with most quality-altering mods because we sample the actual roll.
 * Legendary requires Inspired Creativity or the Production Specialist role; the cheat respects this.
-* Construction quality is attributed to the builder pawn reliably.
-* Performance: sampled odds are cached; the log’s RL time is cheap (accumulator + UI diff). Column resizing persists without “snap-back” and can be reset.
+* Construction quality is attributed to the builder pawn reliably, including minified furniture.
+* Performance: sampled odds are cached; the log’s RL time is cheap (accumulator + UI diff). Column resizing persists and can be reset.
 
 ## Troubleshooting
 
@@ -106,8 +117,9 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 
 ## Changelog (recent highlights)
 
-* **New**: **Real-life Play Time (RL)** column in the table, RL time shown inline in Log view, and **PlayTime** in CSV export. Ignores paused time.
-* **New**: **Pop out / Dock** toggle with single-instance behavior; floating window has a dedicated drag bar and clamps on-screen.
-* **Improved**: Column layout persistence—no snap-back on mouse-up; resetting now reliably updates all instances.
-* **Improved**: Materials display shows up to 3 material icons + full list tooltip; falls back to Stuff when no mats exist.
-* **Fixed**: Assorted compile guards & null-safety around game events and role detection.
+* **New**: **Construction quality odds** gizmo on **frames & blueprints** (choose a pawn, see full Awful→Legendary odds).
+* **New**: Dev-only **Validate 100k** buttons in both odds windows; results are copied to clipboard.
+* **Improved**: Cheat is **isolated from sampling** (no bias); a **single-hop safe bump** upgrades results when threshold criteria are met, with reentrancy guards and art init safety.
+* **Improved**: Deterministic seeding + smarter caching (keyed by pawn, recipe/builtDef, boost mask, cheat flag) for very fast UI refresh.
+* **Improved**: Materials and worker attribution are more robust across minified items and construction completion.
+* **Fixed**: Rare crash when dev cheat was enabled (now guarded by recursion shields, inspiration side-effect suppression, and clean sampling separation).
