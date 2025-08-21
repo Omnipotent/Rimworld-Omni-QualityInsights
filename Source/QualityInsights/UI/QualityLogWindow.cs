@@ -14,8 +14,9 @@ namespace QualityInsights.UI
         private Vector2 _dragStartWinPos;
 
         // height of our internal draggable strip
-        private const float DragBarH = 22f;
+        private static float DragBarH => Mathf.Ceil(Text.LineHeight) + 6f; // line height + padding
         public override Vector2 InitialSize => new(1100f, 720f);
+        private int _lastW, _lastH;
 
         public QualityLogWindow()
         {
@@ -34,6 +35,13 @@ namespace QualityInsights.UI
         {
             base.PreOpen();
             MainTabWindow_QualityLog.RegisterFloating(this);
+
+            var maxW = Verse.UI.screenWidth  * 0.95f;
+            var maxH = Verse.UI.screenHeight * 0.95f;
+            windowRect.width  = Mathf.Min(windowRect.width,  maxW);
+            windowRect.height = Mathf.Min(windowRect.height, maxH);
+            windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, Verse.UI.screenWidth  - windowRect.width));
+            windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, Verse.UI.screenHeight - windowRect.height));
         }
 
         public override void PostClose()
@@ -44,16 +52,23 @@ namespace QualityInsights.UI
 
         public override void DoWindowContents(Rect inRect)
         {
+            if (_lastW != Verse.UI.screenWidth || _lastH != Verse.UI.screenHeight)
+            {
+                _lastW = Verse.UI.screenWidth; _lastH = Verse.UI.screenHeight;
+                windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, _lastW - windowRect.width));
+                windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, _lastH - windowRect.height));
+            }
+
             // calm down flicker by pausing passthrough & camera only while dragging
-            absorbInputAroundWindow = _draggingWindow;
-            preventCameraMotion     = _draggingWindow;
+            absorbInputAroundWindow = _draggingWindow || _tab.IsDraggingSplitter;
+            preventCameraMotion     = _draggingWindow || _tab.IsDraggingSplitter;
 
             var dragBar = new Rect(inRect.x, inRect.y, inRect.width, DragBarH);
             Widgets.DrawLightHighlight(dragBar);
 
             var ev = Event.current;
 
-            if (!_tab.IsDraggingSplitter)
+            if (!(_tab.IsDraggingSplitter || _tab.IsHoveringSplitter))
             {
                 if (ev.type == EventType.MouseDown && ev.button == 0 && dragBar.Contains(ev.mousePosition))
                 {

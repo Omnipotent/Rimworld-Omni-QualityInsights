@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Verse;
+using QualityInsights.UI;
 
 namespace QualityInsights
 {
@@ -32,8 +33,11 @@ namespace QualityInsights
 
         // persistent table column fractions (must sum ~1) — store as List<float> for scribing
         private static List<float> NewDefaultColFractions() =>
-            new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
-        public List<float> colFractions = new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f };
+            // new() { 0.12f, 0.16f, 0.13f, 0.06f, 0.12f, 0.22f, 0.12f, 0.07f }; // old 7 column sizing
+            new() { 0.08f, 0.08f, 0.14f, 0.12f, 0.06f, 0.08f, 0.18f, 0.18f, 0.08f };
+        // 9 columns (Time, RL, Pawn, Skill, Lvl, Quality, Item, Stuff, Tags)
+        public List<float> colFractions = MainTabWindow_QualityLog.DefaultColFractions();
+
 
         public bool enableDebugLogs = false;
         public override void ExposeData()
@@ -58,9 +62,9 @@ namespace QualityInsights
 
             Scribe_Collections.Look(ref colFractions, nameof(colFractions), LookMode.Value);
 
-            // safety: ensure defaults if missing or wrong size
-            if (colFractions == null || colFractions.Count != 8)
-                colFractions = NewDefaultColFractions();
+            // safety: if list wasn't saved or size changed, restore defaults
+            if (colFractions == null || colFractions.Count == 0)
+                colFractions = MainTabWindow_QualityLog.DefaultColFractions();
         }
 
         // convenience for UI code (unchanged)

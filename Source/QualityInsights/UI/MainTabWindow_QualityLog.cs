@@ -76,6 +76,7 @@ namespace QualityInsights.UI
         private const float SplitterW = 10f;
         private const float ColMinFrac = 0.06f;
         public  bool IsDraggingSplitter => _dragCol >= 0;
+        public bool IsHoveringSplitter { get; private set; }
 
         // --- per-instance pixel cache ---
         private float[] _colPx = Array.Empty<float>();
@@ -89,7 +90,8 @@ namespace QualityInsights.UI
         // Column layout helpers
         // default fractions include an extra "RL" column after "Time"
         internal static List<float> DefaultColFractions() =>
-            new() { 0.10f, 0.10f, 0.16f, 0.12f, 0.06f, 0.12f, 0.20f, 0.10f, 0.04f };
+            // new() { 0.10f, 0.10f, 0.16f, 0.12f, 0.06f, 0.12f, 0.20f, 0.10f, 0.04f };
+            new() { 0.08f, 0.08f, 0.14f, 0.12f, 0.06f, 0.08f, 0.18f, 0.18f, 0.08f };
         public static void InvalidateColumnLayout() { s_layoutGen++; }
 
         // Fractions that produced the current _colPx cache.
@@ -426,6 +428,7 @@ namespace QualityInsights.UI
 
         private void DrawTable(Rect outRect, List<QualityLogEntry> list, float rowH, float headerH, double nowPlay)
         {
+            IsHoveringSplitter = false;
             EnsureColPx(outRect.width);
             int n = ColHeaders.Length;
             float hx = 0f;
@@ -457,14 +460,13 @@ namespace QualityInsights.UI
 
                 if (i < n - 1)
                 {
+                    const float SplitterGrab = 14f;                 // was 10
                     var split = new Rect(hr.xMax - SplitterW, hr.y, SplitterW, hr.height);
-                    MouseoverSounds.DoRegion(split);
+                    var hit   = new Rect(split.x - (SplitterGrab - SplitterW) * 0.5f, split.y, SplitterGrab, split.height);
 
-                    var old = GUI.color; GUI.color = new Color(1f, 1f, 1f, 0.08f);
-                    Widgets.DrawLineVertical(split.center.x, split.y + 4f, split.height - 8f);
-                    GUI.color = old;
+                    if (Mouse.IsOver(hit)) { IsHoveringSplitter = true; MouseoverSounds.DoRegion(hit); }
 
-                    if (Event.current.type == EventType.MouseDown && split.Contains(Event.current.mousePosition))
+                    if (Event.current.type == EventType.MouseDown && hit.Contains(Event.current.mousePosition))
                     {
                         _dragCol    = i;
                         _dragStartX = Event.current.mousePosition.x;

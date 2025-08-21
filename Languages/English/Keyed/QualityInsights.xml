@@ -34,4 +34,7 @@
   <QI_Settings_ResetAll>Reset all settings to defaults</QI_Settings_ResetAll>
   <QI_ResetAllConfirm>Reset all Quality Insights settings to their defaults? This action cannot be undone.</QI_ResetAllConfirm>
   <QI_ResetAllMsg>Quality Insights settings reset to defaults.</QI_ResetAllMsg>
+
+  <QI_Settings_ClearLog>Clear Quality Log (this save)</QI_Settings_ClearLog>
+  <QI_ClearLogMsg>Quality Log cleared for this save.</QI_ClearLogMsg>
 </LanguageData>

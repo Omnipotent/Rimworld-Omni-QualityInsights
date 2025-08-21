@@ -109,6 +109,13 @@ namespace QualityInsights
                 );
             }
 
+            if (ls.ButtonText("QI_Settings_ClearLog".Translate()))
+            {
+                var comp = Logging.QualityLogComponent.Ensure(Current.Game);
+                comp.entries.Clear();
+                Messages.Message("QI_ClearLogMsg".Translate(), MessageTypeDefOf.TaskCompletion, false);
+            }
+
             ls.Gap();
             if (ls.ButtonText("QI_Settings_OpenLog".Translate()))
                 Find.WindowStack.Add(new UI.QualityLogWindow());
