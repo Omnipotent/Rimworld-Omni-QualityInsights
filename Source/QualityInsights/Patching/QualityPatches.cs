@@ -9,6 +9,7 @@ using QualityInsights.Logging;
 using QualityInsights.Prob;
 using QualityInsights.Utils;
 using System.Runtime.CompilerServices; // ConditionalWeakTable
+using System.Collections;
 
 namespace QualityInsights.Patching
 {
@@ -162,6 +163,11 @@ namespace QualityInsights.Patching
             if (getGizmos != null)
                 harmony.Patch(getGizmos, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterGetGizmos)));
 
+            // Patch Blueprint_Build.GetGizmos so we can show odds before the frame exists
+            var getGizmosBlueprint = AccessTools.Method(typeof(Blueprint_Build), nameof(Blueprint_Build.GetGizmos));
+            if (getGizmosBlueprint != null)
+                harmony.Patch(getGizmosBlueprint, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterGetGizmos_Blueprint)));
+
             Log.Message("[QualityInsights] Patches applied.");
         }
 
@@ -170,6 +176,15 @@ namespace QualityInsights.Patching
             var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                               .Where(m => m.Name == methodName);
             foreach (var mi in methods) harmony.Patch(mi, prefix: prefix);
+        }
+
+        private static bool ThingDefHasCompQuality(ThingDef? def)
+        {
+            if (def == null || def.comps == null) return false;
+            for (int i = 0; i < def.comps.Count; i++)
+                if (def.comps[i]?.compClass == typeof(CompQuality))
+                    return true;
+            return false;
         }
 
         public static bool InspirationGuardPrefix()
@@ -240,14 +255,52 @@ namespace QualityInsights.Patching
         public static void AfterGetGizmos(Building __instance, ref IEnumerable<Gizmo> __result)
         {
             if (!QualityInsightsMod.Settings.enableLiveChances) return;
-            if (__instance is not Building_WorkTable wt) return;
+
+            // Existing: worktables
+            if (__instance is Building_WorkTable wt)
+            {
+                var cmd = new Command_Action
+                {
+                    defaultLabel = "QI_LiveOdds".Translate(),
+                    defaultDesc  = "Show estimated chances of Excellent/Masterwork/Legendary for a chosen pawn & recipe.",
+                    icon = TexCommand.DesirePower,
+                    action = () => Find.WindowStack.Add(new UI.ChancesWindow(wt))
+                };
+                __result = __result.Concat(new[] { cmd });
+                return;
+            }
+
+            // NEW: construction frames
+            if (__instance is Frame frame)
+            {
+                var builtDef = frame?.def?.entityDefToBuild as ThingDef;
+                if (ThingDefHasCompQuality(builtDef))
+                {
+                    var cmd = new Command_Action
+                    {
+                        defaultLabel = "QI_LiveOdds".Translate(), // reuse key; or add a dedicated one later
+                        defaultDesc  = "Show estimated construction quality odds for this building.",
+                        icon = TexCommand.DesirePower,
+                        action = () => Find.WindowStack.Add(new UI.ConstructionChancesWindow(frame))
+                    };
+                    __result = __result.Concat(new[] { cmd });
+                }
+            }
+        }
+
+        public static void AfterGetGizmos_Blueprint(Blueprint_Build __instance, ref IEnumerable<Gizmo> __result)
+        {
+            if (!QualityInsightsMod.Settings.enableLiveChances) return;
+
+            var builtDef = __instance?.def?.entityDefToBuild as ThingDef;
+            if (!ThingDefHasCompQuality(builtDef)) return;
 
             var cmd = new Command_Action
             {
                 defaultLabel = "QI_LiveOdds".Translate(),
-                defaultDesc = "Show estimated chances of Excellent/Masterwork/Legendary for a chosen pawn & recipe.",
+                defaultDesc  = "Show estimated construction quality odds for this building.",
                 icon = TexCommand.DesirePower,
-                action = () => Find.WindowStack.Add(new UI.ChancesWindow(wt))
+                action = () => Find.WindowStack.Add(new UI.ConstructionChancesWindow(__instance.Map, builtDef))
             };
             __result = __result.Concat(new[] { cmd });
         }
