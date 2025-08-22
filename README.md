@@ -18,6 +18,10 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Reset column widths** from **either** the Mod Settings **or** the table footer.
   * **Zebra striping & hover highlights** for readability.
   * **Dynamic last column** auto-fills remaining width.
+* **Responsive controls (no overlap)**
+  * Header and footer controls **auto-size to fit labels** and **adapt** to smaller windows or larger fonts.
+  * The search box shrinks first; lower-priority actions move into a **“⋯ More” overflow menu** when space is tight.
+  * Applies **only** to the Quality Log (both docked and popped out); other windows are unchanged.
 * **Search & filters**
   * **Inline clear (×)** button inside the search box.
   * **Ctrl/Cmd+F** focuses the search box.
@@ -125,6 +129,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Ctrl/Cmd+F** focuses the search box; click the **×** inside the box to clear.
 * **Reset filters** clears **Search/Quality/Skill**.
 * **Pop out / Dock** toggles the window mode.
+* On cramped layouts, use **“⋯ More”** to access overflowed actions (e.g., **Columns**, **Reset filters**, **Pop out/Dock**; footer may overflow **Open folder**, **Reset widths**, **Export**, **Settings** as needed).
 
 ## Build
 
@@ -160,6 +165,7 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 
 ## Changelog (recent highlights)
 
+* **New**: **Responsive header/footer** — buttons auto-size; search shrinks first; low-priority actions flow into a **“⋯ More”** overflow (no overlap on small windows/large fonts; Quality Log only).
 * **New**: **Reset filters** button — one click clears Search/Quality/Skill and persists the cleared state.
 * **New**: **Materials-aware search** — search matches Stuff *and* per-ingredient materials (multi-mat) by raw defName and friendly label.
 * **New**: **Notification silencing** for **Masterwork/Legendary** — suppresses both the bottom-left toast *and* the right-side **Letter** (blue mail). Handles minified items and same-tick events.

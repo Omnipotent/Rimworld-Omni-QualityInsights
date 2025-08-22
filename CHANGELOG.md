@@ -6,6 +6,12 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 ## [Unreleased]
 
 ### Added
+- **Quality Log – Responsive header/footer + overflow (“⋯ More”)**
+  - Buttons **auto-size** to fit labels and avoid overlap on small windows or large UI scales.
+  - The **search field shrinks first**; lower-priority actions flow into a **“⋯ More”** menu.
+  - Header overflow may include: **Reset filters**, **Columns**, **Pop out/Dock**.  
+    Footer overflow may include: **Open folder**, **Reset widths**, **Export CSV**, **Settings** (as needed).
+  - Scoped **only** to the Quality Log (docked and popped out).
 - **Quality Log – Reset filters button**:
   - One-click clear of **Search**, **Quality**, and **Skill**. Persists the cleared state and focuses the search box.
 - **Quality Log – Materials-aware search**:
@@ -40,6 +46,9 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - Smaller top margin and a larger draggable strip.
 
 ### Changed
+- **Quality Log buttons are now adaptive**:
+  - Button widths are measured from labels at runtime; overlap is prevented via responsive layout and overflow.
+  - Preference is given to keep **Settings** and **Export CSV** visible in the footer when possible.
 - **Cheat isolation & safety**:
   - Cheat evaluation samples a **true baseline** (cheat force-disabled, inspirations stripped, side-effects suppressed), then applies a **single-hop safe bump** if the chosen tier meets your threshold.
   - Legendary rules still apply (requires Inspired Creativity or Production Specialist).
@@ -54,6 +63,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - Header includes `PlayTime`; export path has **Open folder** and auto-prunes by count/size (settings).
 
 ### Fixed
+- **UI overlap** in the Quality Log header/footer when shrinking the window or using larger fonts — controls now adapt or overflow to **“⋯ More”**.
 - **Notification silencing** now correctly targets both Messages and Letters via patched overloads. Debug traces identify what was blocked.
 - **Search clear button** now reliably clears the text even when the text field had focus.
 - **Crash with dev cheat enabled** in rare re-entrancy/recursion paths:
