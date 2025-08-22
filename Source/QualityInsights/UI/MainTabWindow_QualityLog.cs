@@ -163,6 +163,28 @@ namespace QualityInsights.UI
             return vis;
         }
 
+        // --- Adaptive layout helpers ---
+        private static float MeasureLabelW(string label)
+        {
+            Vector2 sz = Text.CalcSize(label ?? string.Empty);
+            return Mathf.Ceil(sz.x);
+        }
+        private static float MeasureButtonW(string label)
+        {
+            // RimWorld buttons add some horizontal padding; 16f feels about right.
+            return Mathf.Clamp(Mathf.Ceil(MeasureLabelW(label)) + 16f, 60f, 260f);
+        }
+        private static bool DrawOverflowButton(Rect r, List<FloatMenuOption> opts)
+        {
+            // Simple "⋯" button. If clicked, shows the collected options.
+            // Keep width small so we can squeeze it in tight UIs.
+            bool clicked = Widgets.ButtonText(r, "⋯");
+            if (clicked && opts != null && opts.Count > 0)
+                Find.WindowStack.Add(new FloatMenu(opts));
+            TooltipHandler.TipRegion(r, "More");
+            return clicked;
+        }
+
         // NEW: right-click copy menu
         private void MaybeContextCopy(Rect rowRect, QualityLogEntry e)
         {
@@ -171,9 +193,9 @@ namespace QualityInsights.UI
             {
                 string BuildFriendly()
                 {
-                    string pawn  = e.pawnName ?? "Unknown";
+                    string pawn = e.pawnName ?? "Unknown";
                     string skill = e.skillDef ?? "Unknown";
-                    string item  = FriendlyThingLabel(e.thingDef);
+                    string item = FriendlyThingLabel(e.thingDef);
                     string stuffFriendly = e.HasMats
                         ? string.Join("+", (e.mats ?? new List<string>()).Select(FriendlyDefLabel))
                         : FriendlyDefLabel(e.stuffDef);
@@ -415,7 +437,7 @@ namespace QualityInsights.UI
                 var s = QualityInsightsMod.Settings;
                 search = s.savedSearch ?? string.Empty;
                 filterQuality = s.savedFilterQuality >= 0
-                    ? (QualityCategory?) (QualityCategory) s.savedFilterQuality
+                    ? (QualityCategory?)(QualityCategory)s.savedFilterQuality
                     : null;
                 filterSkill = string.IsNullOrEmpty(s.savedFilterSkill) ? null : s.savedFilterSkill;
                 _filtersInitialized = true;
@@ -429,15 +451,170 @@ namespace QualityInsights.UI
 
                 // ===== Header (filters + toggle/export) =====
                 var header = new Rect(0, 0, rect.width, headerH);
-
                 var ev = Event.current; // reuse
 
-                var searchLabel = new Rect(0, header.y, 70f, headerH);
-                Widgets.Label(searchLabel, "Search:");
+                // ----- Measure dynamic widths -----
+                float gap = Pad;
+                string searchLabelText = "Search:";
+                float searchLabelW = MeasureLabelW(searchLabelText);
 
-                // Keep a fixed overall width for the search area (textbox + clear button)
-                float searchAreaW = rect.width * 0.28f;
-                float searchX = searchLabel.xMax + 6f;
+                // Desired vs minimum search widths
+                float idealSearchW = rect.width * 0.28f;
+                float minSearchW   = Mathf.Max(140f, headerH * 4.0f); // don’t go silly-small
+
+                string qualBtnLabel  = filterQuality?.ToString() ?? "All qualities";
+                string skillBtnLabel = filterSkill ?? "All skills";
+                string resetLabel    = "Reset filters";
+                string columnsLabel  = "Columns";
+                string toggleLabel   = FloatingOpen ? "Dock" : "Pop out";
+
+                float qualW   = MeasureButtonW(qualBtnLabel);
+                float skillW  = MeasureButtonW(skillBtnLabel);
+                float resetW  = MeasureButtonW(resetLabel);
+                float columnsW= MeasureButtonW(columnsLabel);
+                float toggleW = MeasureButtonW(toggleLabel);
+                float clearSz = Mathf.Min(22f, headerH - 6f);
+                float clearPad= 4f;
+
+                // We’ll decide these dynamically based on available width
+                bool showResetInHeader = true;
+                bool showColumnsBtn    = true;
+                bool showToggleBtn     = true;
+                bool showSearchLabel   = true;
+
+                var overflow = new List<FloatMenuOption>();
+
+                // ----- Right cluster total width (can shrink via overflow later) -----
+                float overflowBtnW = MeasureButtonW("⋯"); // small
+                float rightClusterW = toggleW + gap + columnsW; // initial assumption (no overflow)
+                float rightClusterExtra = 0f; // becomes overflow button width if needed
+
+                // ----- Start with an optimistic search width -----
+                float searchAreaW = Mathf.Clamp(idealSearchW, minSearchW, rect.width * 0.55f);
+
+                // We’ll repeatedly adjust until it fits without overlap
+                int safety = 0;
+                while (safety++ < 8)
+                {
+                    // Compute the right edge left boundary (rxLeft) given visible right-side buttons
+                    float rxLeft = rect.width - rightClusterW - 4f; // small right padding
+
+                    // Compute left cluster extent if all left-side buttons are visible
+                    float reservedForClear = (!string.IsNullOrEmpty(search) ? (clearSz + clearPad) : 0f);
+                    float labelW = showSearchLabel ? (searchLabelW + 6f) : 0f; // little space after label
+                    float leftEnd =
+                        0f + labelW + searchAreaW + gap + qualW + gap + skillW + gap + (showResetInHeader ? resetW + gap : 0f);
+
+                    if (leftEnd <= rxLeft) break; // fits!
+
+                    // 1) Try shrinking search first
+                    float overflowPx = leftEnd - rxLeft;
+                    float newSearch = Mathf.Max(minSearchW, searchAreaW - overflowPx);
+                    if (newSearch < searchAreaW - 0.5f) { searchAreaW = newSearch; continue; }
+
+                    // 2) Move least-crucial left control(s) into overflow
+                    if (showResetInHeader)
+                    {
+                        showResetInHeader = false;
+                        overflow.Add(new FloatMenuOption(resetLabel, () =>
+                        {
+                            // Reset filters action
+                            search = string.Empty;
+                            filterQuality = null;
+                            filterSkill = null;
+                            QualityInsightsMod.Settings.savedSearch = string.Empty;
+                            QualityInsightsMod.Settings.savedFilterQuality = -1;
+                            QualityInsightsMod.Settings.savedFilterSkill = string.Empty;
+                            QualityInsightsMod.SaveSettingsNow();
+                            GUI.FocusControl(SearchCtrlName);
+                        }));
+                        continue;
+                    }
+
+                    // 3) Move Columns to overflow
+                    if (showColumnsBtn)
+                    {
+                        showColumnsBtn = false;
+                        rightClusterW -= columnsW;
+                        rightClusterExtra = overflowBtnW; // we now need an overflow button
+                        continue;
+                    }
+
+                    // 4) Move Pop/Dock to overflow
+                    if (showToggleBtn)
+                    {
+                        showToggleBtn = false;
+                        rightClusterW -= (rightClusterW > 0 ? (gap + toggleW) : toggleW);
+                        rightClusterExtra = overflowBtnW; // ensure overflow button
+                        continue;
+                    }
+
+                    // 5) Hide the "Search:" label if we’re still tight
+                    if (showSearchLabel)
+                    {
+                        showSearchLabel = false;
+                        continue;
+                    }
+
+                    // If we reach here, we’re extremely cramped: clamp search to min and bail
+                    searchAreaW = minSearchW;
+                    break;
+                }
+
+                // If anything moved to overflow (header-side), add those options now
+                if (!showColumnsBtn)
+                {
+                    overflow.Add(new FloatMenuOption(columnsLabel, () =>
+                    {
+                        var hidden = QualityInsightsMod.Settings.hiddenCols ??= new List<string>();
+                        var opts = new List<FloatMenuOption>();
+                        foreach (var t in AllCols)
+                        {
+                            bool isHidden = hidden.Contains(t.key);
+                            string label = (isHidden ? "   " : "✓ ") + t.header;
+                            opts.Add(new FloatMenuOption(label, () =>
+                            {
+                                int visibleCount = AllCols.Count(c => !hidden.Contains(c.key));
+                                if (!isHidden)
+                                {
+                                    if (visibleCount <= 1) { SoundDefOf.ClickReject.PlayOneShotOnCamera(); return; }
+                                    hidden.Add(t.key);
+                                    if (s_sortCol == t.id) s_sortCol = VisibleCols().First();
+                                }
+                                else hidden.Remove(t.key);
+
+                                QualityInsightsMod.Instance.WriteSettings();
+                                InvalidateColumnLayout();
+                            }));
+                        }
+                        Find.WindowStack.Add(new FloatMenu(opts));
+                    }));
+                }
+                if (!showToggleBtn)
+                {
+                    overflow.Add(new FloatMenuOption(toggleLabel, () =>
+                    {
+                        if (FloatingOpen) DockAndClosePopOut();
+                        else PopOutAndCloseDock();
+                    }));
+                }
+
+                // Recompute final right boundary with overflow button if needed
+                float rx = rect.width - 4f;
+                if (overflow.Count > 0) { rx -= overflowBtnW; }                 // space for "⋯"
+                if (showToggleBtn)      { rx -= toggleW; if (showColumnsBtn) rx -= gap; }
+                if (showColumnsBtn)     { rx -= columnsW; }
+
+                // ----- Draw header controls -----
+                float x = 0f;
+
+                // Search label
+                if (showSearchLabel)
+                {
+                    var searchLabel = new Rect(x, header.y, searchLabelW, headerH);
+                    Widgets.Label(searchLabel, searchLabelText);
+                    x = searchLabel.xMax + 6f;
+                }
 
                 // Ctrl/Cmd+F focuses the search box
                 if (ev.type == EventType.KeyDown && (ev.control || ev.command) && ev.keyCode == KeyCode.F)
@@ -446,33 +623,23 @@ namespace QualityInsights.UI
                     ev.Use();
                 }
 
-                // If there’s text, reserve room for the clear button; otherwise 0
+                // Search box (reserve space for clear button if needed)
                 bool showClear = !string.IsNullOrEmpty(search);
-                float clearSz = Mathf.Min(22f, headerH - 6f);
-                float clearPad = 4f;
                 float reserved = showClear ? (clearSz + clearPad) : 0f;
+                var searchBox = new Rect(x, header.y, Mathf.Max(0f, searchAreaW - reserved), headerH);
 
-                // Text field uses the left portion of the search area
-                var searchBox = new Rect(searchX, header.y, searchAreaW - reserved, headerH);
-
-                // Name the control so we can focus it
                 GUI.SetNextControlName(SearchCtrlName);
                 var prevSearch = search;
                 search = Widgets.TextField(searchBox, search);
                 if (!string.Equals(prevSearch, search))
-                {
-                    QualityInsightsMod.Settings.savedSearch = search ?? string.Empty; // in-memory persist
-                }
+                    QualityInsightsMod.Settings.savedSearch = search ?? string.Empty;
 
-                // Draw the clear button in the reserved strip (not overlapping the text field)
                 if (showClear)
                 {
-                    // position the “×” inside the right-hand reserved strip
-                    var clearRect = new Rect(searchX + searchAreaW - clearSz,
+                    var clearRect = new Rect(searchBox.xMax + clearPad,
                                             header.y + (headerH - clearSz) * 0.5f,
                                             clearSz, clearSz);
 
-                    // Use the image button if available, else a text fallback
                     bool clicked =
                         (TexButton.CloseXSmall != null && Widgets.ButtonImage(clearRect, TexButton.CloseXSmall))
                         || (TexButton.CloseXSmall == null && Widgets.ButtonText(clearRect, "×"));
@@ -483,15 +650,13 @@ namespace QualityInsights.UI
                         QualityInsightsMod.Settings.savedSearch = string.Empty;
                         GUI.FocusControl(SearchCtrlName);
                     }
-
                     TooltipHandler.TipRegion(clearRect, "Clear");
                 }
 
-                // Continue layout to the right of the whole search area
-                float x = searchX + searchAreaW + Pad;
+                x = (showSearchLabel ? (searchBox.x - 6f) : searchBox.x) + searchAreaW + gap;
 
-                // Quality dropdown (goes before the Skill dropdown)
-                if (Widgets.ButtonText(new Rect(x, header.y, QualBtnW, headerH), filterQuality?.ToString() ?? "All qualities"))
+                // Quality dropdown
+                if (Widgets.ButtonText(new Rect(x, header.y, qualW, headerH), qualBtnLabel))
                 {
                     var opts = new List<FloatMenuOption>();
                     foreach (QualityCategory q in Enum.GetValues(typeof(QualityCategory)))
@@ -508,12 +673,11 @@ namespace QualityInsights.UI
                         filterQuality = null;
                         QualityInsightsMod.Settings.savedFilterQuality = -1;
                     }));
-
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
-                x += QualBtnW + Pad;
+                x += qualW + gap;
 
-                // Build the list of skills present for the dropdown
+                // Skill dropdown
                 var skillsPresent = comp.entries
                     .Select(e => e.skillDef ?? "Unknown")
                     .Where(s => !string.IsNullOrWhiteSpace(s))
@@ -521,10 +685,9 @@ namespace QualityInsights.UI
                     .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                if (Widgets.ButtonText(new Rect(x, header.y, SkillBtnW, headerH), filterSkill ?? "All skills"))
+                if (Widgets.ButtonText(new Rect(x, header.y, skillW, headerH), skillBtnLabel))
                 {
                     var opts = new List<FloatMenuOption>();
-
                     foreach (var sd in skillsPresent)
                     {
                         var local = sd;
@@ -539,75 +702,78 @@ namespace QualityInsights.UI
                         filterSkill = null;
                         QualityInsightsMod.Settings.savedFilterSkill = string.Empty;
                     }));
-
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
+                x += skillW + gap;
 
-                // advance past the Skill dropdown
-                x += SkillBtnW + Pad;
-
-                // Reset filters button (resets search + quality + skill)
-                const float ResetBtnW = 110f;
-                if (Widgets.ButtonText(new Rect(x, header.y, ResetBtnW, headerH), "Reset filters"))
+                // Reset filters (unless pushed to overflow)
+                if (showResetInHeader)
                 {
-                    // Clear UI state
-                    search = string.Empty;
-                    filterQuality = null;
-                    filterSkill = null;
-
-                    // Persist in-memory and to disk
-                    QualityInsightsMod.Settings.savedSearch = string.Empty;
-                    QualityInsightsMod.Settings.savedFilterQuality = -1;
-                    QualityInsightsMod.Settings.savedFilterSkill = string.Empty;
-                    QualityInsightsMod.SaveSettingsNow();
-
-                    GUI.FocusControl(SearchCtrlName);
-                }
-                x += ResetBtnW + Pad;
-
-                // Right-aligned header buttons
-                float rx = rect.width - 110f;
-                string toggleLabel = FloatingOpen ? "Dock" : "Pop out";
-                if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), toggleLabel))
-                {
-                    if (FloatingOpen) DockAndClosePopOut();
-                    else PopOutAndCloseDock();
-                }
-                rx -= 110f;
-
-                // NEW: Columns menu
-                if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), "Columns"))
-                {
-                    var hidden = QualityInsightsMod.Settings.hiddenCols ??= new List<string>();
-                    var opts = new List<FloatMenuOption>();
-
-                    foreach (var t in AllCols)
+                    if (Widgets.ButtonText(new Rect(x, header.y, resetW, headerH), resetLabel))
                     {
-                        bool isHidden = hidden.Contains(t.key);
-                        string label = (isHidden ? "   " : "✓ ") + t.header;  // faux checkbox
-                        opts.Add(new FloatMenuOption(label, () =>
-                        {
-                            // Never allow hiding all columns
-                            if (!isHidden)
-                            {
-                                // attempting to hide this; ensure at least one other remains visible
-                                int visibleCount = AllCols.Count(c => !hidden.Contains(c.key));
-                                if (visibleCount <= 1) { SoundDefOf.ClickReject.PlayOneShotOnCamera(); return; }
-                                hidden.Add(t.key);
-                                // If we just hid the sorted column, switch to first visible
-                                if (s_sortCol == t.id) s_sortCol = VisibleCols().First();
-                            }
-                            else
-                            {
-                                hidden.Remove(t.key);
-                            }
-
-                            QualityInsightsMod.Instance.WriteSettings();
-                            InvalidateColumnLayout();    // force all open instances to rebuild layout
-                        }));
+                        search = string.Empty;
+                        filterQuality = null;
+                        filterSkill = null;
+                        QualityInsightsMod.Settings.savedSearch = string.Empty;
+                        QualityInsightsMod.Settings.savedFilterQuality = -1;
+                        QualityInsightsMod.Settings.savedFilterSkill = string.Empty;
+                        QualityInsightsMod.SaveSettingsNow();
+                        GUI.FocusControl(SearchCtrlName);
                     }
+                    x += resetW + gap;
+                }
 
-                    Find.WindowStack.Add(new FloatMenu(opts));
+                // Right-aligned buttons (Columns / PopOut) + optional overflow
+                float rxCursor = rect.width - 4f;
+
+                // Overflow first (furthest right)
+                if (overflow.Count > 0)
+                {
+                    var ofRect = new Rect(rxCursor - overflowBtnW, header.y, overflowBtnW, headerH);
+                    DrawOverflowButton(ofRect, overflow);
+                    rxCursor -= (overflowBtnW + gap);
+                }
+
+                if (showToggleBtn)
+                {
+                    var r = new Rect(rxCursor - toggleW, header.y, toggleW, headerH);
+                    if (Widgets.ButtonText(r, toggleLabel))
+                    {
+                        if (FloatingOpen) DockAndClosePopOut();
+                        else PopOutAndCloseDock();
+                    }
+                    rxCursor -= (toggleW + gap);
+                }
+
+                if (showColumnsBtn)
+                {
+                    var r = new Rect(rxCursor - columnsW, header.y, columnsW, headerH);
+                    if (Widgets.ButtonText(r, columnsLabel))
+                    {
+                        var hidden = QualityInsightsMod.Settings.hiddenCols ??= new List<string>();
+                        var opts = new List<FloatMenuOption>();
+                        foreach (var t in AllCols)
+                        {
+                            bool isHidden = hidden.Contains(t.key);
+                            string label = (isHidden ? "   " : "✓ ") + t.header;  // faux checkbox
+                            opts.Add(new FloatMenuOption(label, () =>
+                            {
+                                int visibleCount = AllCols.Count(c => !hidden.Contains(c.key));
+                                if (!isHidden)
+                                {
+                                    if (visibleCount <= 1) { SoundDefOf.ClickReject.PlayOneShotOnCamera(); return; }
+                                    hidden.Add(t.key);
+                                    if (s_sortCol == t.id) s_sortCol = VisibleCols().First();
+                                }
+                                else hidden.Remove(t.key);
+
+                                QualityInsightsMod.Instance.WriteSettings();
+                                InvalidateColumnLayout();
+                            }));
+                        }
+                        Find.WindowStack.Add(new FloatMenu(opts));
+                    }
+                    rxCursor -= (columnsW); // no trailing gap; we already subtracted above when drawing next
                 }
 
                 // ===== Apply filters =====
@@ -616,22 +782,18 @@ namespace QualityInsights.UI
                 {
                     rows = rows.Where(e =>
                     {
-                        // raw basics
-                        bool hitPawn   = ContainsCI(e.pawnName, term);
-                        bool hitSkill  = ContainsCI(e.skillDef, term);
+                        bool hitPawn = ContainsCI(e.pawnName, term);
+                        bool hitSkill = ContainsCI(e.skillDef, term);
                         bool hitItemID = ContainsCI(e.thingDef, term);
                         bool hitItemFriendly = ContainsCI(FriendlyThingLabel(e.thingDef), term);
 
-                        // stuff (raw + friendly)
-                        bool hitStuffRaw      = ContainsCI(e.stuffDef, term);
+                        bool hitStuffRaw = ContainsCI(e.stuffDef, term);
                         bool hitStuffFriendly = ContainsCI(FriendlyDefLabel(e.stuffDef), term);
 
-                        // materials (joined) raw + friendly
                         var mats = e.mats ?? new List<string>();
-                        bool hitMatsRaw      = AnyCI(mats, term);
+                        bool hitMatsRaw = AnyCI(mats, term);
                         bool hitMatsFriendly = AnyCI(mats.Select(FriendlyDefLabel), term);
 
-                        // tags
                         string tags = (e.inspiredCreativity ? "Inspired " : string.Empty)
                                     + (e.productionSpecialist ? "ProdSpec" : string.Empty);
                         bool hitTags = ContainsCI(tags, term);
@@ -658,52 +820,100 @@ namespace QualityInsights.UI
                 if (s_viewMode == ViewMode.Table) DrawTable(body, list, rowH, headerH, nowPlay);
                 else DrawLog(body, list, rowH, nowPlay);
 
-                // ===== Footer =====
+                // ===== Footer (adaptive) =====
                 var footer = new Rect(0, rect.height - FooterH, rect.width, FooterH);
 
-                float bw = 100f, gap = 8f;
-                float resetW = 120f;
+                // Left: Table/Log toggles
+                float lx = 4f;
+                string tableLabel = s_viewMode == ViewMode.Table ? "Table ✓" : "Table";
+                string logLabel   = s_viewMode == ViewMode.Log  ? "Log ✓"   : "Log";
+                float tableW = MeasureButtonW(tableLabel);
+                float logW   = MeasureButtonW(logLabel);
 
-                // Right cluster: [Reset widths] [Export CSV] [Open folder] [Settings]
-                float clusterW = resetW + gap + bw + gap + 90f + gap + bw;
-                float xRight = footer.xMax - clusterW - 6f;
+                if (Widgets.ButtonText(new Rect(lx, footer.y + 3f, tableW, 28f), tableLabel))
+                    s_viewMode = ViewMode.Table;
+                lx += tableW + gap;
 
-                // Reset widths (only meaningful in Table view, but harmless otherwise)
-                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, resetW, 28f), "Reset widths"))
+                if (Widgets.ButtonText(new Rect(lx, footer.y + 3f, logW, 28f), logLabel))
+                    s_viewMode = ViewMode.Log;
+                lx += logW + gap;
+
+                // Right cluster: Reset widths, Export CSV, Open folder, Settings (with overflow)
+                string exportLabel = "QI_ExportCSV".Translate();
+                string openLabel   = "Open folder";
+                string resetCols   = "Reset widths";
+                string settingsLbl = "Settings";
+
+                float wExport  = MeasureButtonW(exportLabel);
+                float wOpen    = MeasureButtonW(openLabel);
+                float wReset   = MeasureButtonW(resetCols);
+                float wSettings= MeasureButtonW(settingsLbl);
+
+                // Start with everything visible; shed to overflow if cramped
+                var footerOverflow = new List<FloatMenuOption>();
+
+                // Compute space from the right, trying to fit all
+                float rxF = footer.xMax - 6f;
+
+                // We’ll add buttons from right to left, but only if there’s room.
+                // Helper local that attempts to place a button, else moves it to overflow.
+                bool Place(string label, float w, System.Action onClick, int priorityKeep = 0)
                 {
-                    ResetColumnsToDefaults();
-                    Messages.Message("Column widths reset.", MessageTypeDefOf.TaskCompletion, false);
+                    // priorityKeep > 0 means "try harder" to keep it visible (Settings/Export are higher value)
+                    float needed = w + (rxF < footer.xMax - 6f ? gap : 0f);
+                    // Room available on the right minus the left cluster we already consumed
+                    float roomLeft = rxF - lx;
+
+                    if (roomLeft >= needed)
+                    {
+                        rxF -= (w);
+                        var r = new Rect(rxF, footer.y + 3f, w, 28f);
+                        if (Widgets.ButtonText(r, label)) onClick();
+                        rxF -= gap;
+                        return true;
+                    }
+
+                    footerOverflow.Add(new FloatMenuOption(label, () => onClick()));
+                    return false;
                 }
-                xRight += resetW + gap;
 
-                // Export
-                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "QI_ExportCSV".Translate()))
-                    ExportCSV(comp);
-                xRight += bw + gap;
-
-                // Open folder
-                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, 90f, 28f), "Open folder"))
+                // Try to keep Settings/Export visible first
+                Place(settingsLbl, wSettings, () => QualityInsightsMod.OpenSettings(), priorityKeep: 2);
+                Place(openLabel,   wOpen,     () =>
                 {
                     string target = File.Exists(s_lastExportPath) ? s_lastExportPath : ExportDir;
                     OpenInFileBrowser(target);
+                });
+
+                Place(exportLabel, wExport, () => ExportCSV(comp), priorityKeep: 2);
+                Place(resetCols,   wReset,  () =>
+                {
+                    ResetColumnsToDefaults();
+                    Messages.Message("Column widths reset.", MessageTypeDefOf.TaskCompletion, false);
+                });
+
+                // If anything overflowed, draw the ⋯
+                if (footerOverflow.Count > 0)
+                {
+                    float w = MeasureButtonW("⋯");
+                    rxF -= w;
+                    var r = new Rect(rxF, footer.y + 3f, w, 28f);
+                    DrawOverflowButton(r, footerOverflow);
+                    rxF -= gap;
                 }
-                xRight += 90f + gap;
 
-                // Settings
-                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "Settings"))
-                    QualityInsightsMod.OpenSettings();
-
-                // Left side: view mode toggles
-                float fx = 4f;
-                if (Widgets.ButtonText(new Rect(fx, footer.y + 3f, 80f, 28f), s_viewMode == ViewMode.Table ? "Table ✓" : "Table"))
-                    s_viewMode = ViewMode.Table;
-                fx += 88f;
-                if (Widgets.ButtonText(new Rect(fx, footer.y + 3f, 70f, 28f), s_viewMode == ViewMode.Log ? "Log ✓" : "Log"))
-                    s_viewMode = ViewMode.Log;
-
-                // NEW: “X of Y shown” counter (bottom-left)
-                float afterButtonsX = 4f + 80f + 8f + 70f + 8f;
-                Widgets.Label(new Rect(afterButtonsX, footer.y + 8f, 260f, 20f), $"{shownCount:n0} of {totalCount:n0} shown");
+                // Row count fits in whatever space remains between left cluster and right cluster
+                float labelLeft = lx;
+                float labelRight = Mathf.Max(labelLeft, rxF);
+                float labelWAvail = Mathf.Max(0f, labelRight - labelLeft);
+                if (labelWAvail > 10f)
+                {
+                    string countText = $"{shownCount:n0} of {totalCount:n0} shown";
+                    var oldA = Text.Anchor;
+                    Text.Anchor = TextAnchor.MiddleLeft;
+                    Widgets.Label(new Rect(labelLeft, footer.y + 8f, labelWAvail, 20f), countText.Truncate(labelWAvail));
+                    Text.Anchor = oldA;
+                }
             }
             finally
             {
