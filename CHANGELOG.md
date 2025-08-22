@@ -6,8 +6,17 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 ## [Unreleased]
 
 ### Added
+- **Notification silencing (Masterwork / Legendary)**:
+  - New Mod Settings toggles: **Silence Masterwork**, **Silence Legendary**.
+  - Suppresses **bottom-left toasts** (`Messages.Message`) **and** **right-side Letters** (blue mail) for the specific produced/built thing.
+  - Robust matching via same-tick product IDs, including **minified** inner things.
+  - Dev logs (when enabled) report both the “mark for suppression” and the actual message/letter blocks.
+- **Persistent filters for the Quality Log**:
+  - **Search**, **Quality**, and **Skill** filters are **saved** to settings and **restored** when reopening the log (works in both docked and floating windows).
+  - Updates persist in-memory immediately; settings are flushed on window close.
+- **Reset ALL settings** button in Mod Settings (restores every QI setting).
 - **Construction quality odds**:
-  - New gizmo on **Frames** *and* **Blueprints** to preview full Awful→Legendary odds before/while building.
+  - Gizmo on **Frames** *and* **Blueprints** to preview full Awful→Legendary odds before/while building.
   - Pawn picker for construction odds, mirroring the worktable window UX.
 - **Dev validation tools**:
   - **Validate 100k** button in both odds windows (worktable + construction). Runs a large-N baseline, compares vs. UI, writes a detailed table to the log, and copies results to the clipboard with a toast.
@@ -19,7 +28,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 - **Quality Log – Copy helpers (context menu)**:
   - Right-click a row → **Copy row (friendly)**, **Copy row (raw)**, **Copy Item defName**, **Copy Stuff defName(s)**.
 - **Quality Log – Row count**:
-  - Bottom-left **“X of Y shown”** indicator that updates with filters/search.
+  - Bottom-left **“X of Y shown”** indicator.
 - **Quality Log – Footer reset**:
   - **Reset widths** button that calls the same reset as Mod Settings.
 - **Floating window polish**:
@@ -28,7 +37,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 ### Changed
 - **Cheat isolation & safety**:
   - Cheat evaluation samples a **true baseline** (cheat force-disabled, inspirations stripped, side-effects suppressed), then applies a **single-hop safe bump** if the chosen tier meets your threshold.
-  - Legendary rules still apply (requires inspiration or Production Specialist).
+  - Legendary rules still apply (requires Inspired Creativity or Production Specialist).
   - `CompArt` is initialized when needed before bumping to avoid null art data.
 - **Deterministic, faster odds**:
   - Stable seeding and **smarter caching** keyed by pawn, recipe/**builtDef**, boost mask, and the **cheat flag** for consistently snappy UI.
@@ -40,7 +49,8 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - Header includes `PlayTime`; export path has **Open folder** and auto-prunes by count/size (settings).
 
 ### Fixed
-- **Search clear button** now correctly clears the text (click was previously intercepted by the text field).
+- **Notification silencing** now correctly targets both Messages and Letters via patched overloads. Debug traces identify what was blocked.
+- **Search clear button** now reliably clears the text even when the text field had focus.
 - **Crash with dev cheat enabled** in rare re-entrancy/recursion paths:
   - Guarded with an internal **re-entrancy shield**, an **_inCheatEval** recursion gate, and **inspiration side-effect suppression** during sampling/cheat evaluation.
 - **Duplicate log entries**:
@@ -58,6 +68,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - Boost flags (Inspired/ProdSpec), computed tier boost, and mask.
   - Raw baseline vs. final (boost-shifted) distributions.
   - Context (pawn, skill, recipe/builtDef).
+  - **Suppressed MESSAGE/LETTER** lines when notification silencing is active.
 - Validation output (100k) provides per-tier comparisons and a max absolute delta summary, copied to the clipboard for easy sharing.
 
 ### Migration Notes

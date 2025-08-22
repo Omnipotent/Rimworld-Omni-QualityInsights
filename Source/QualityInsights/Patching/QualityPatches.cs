@@ -9,7 +9,6 @@ using QualityInsights.Logging;
 using QualityInsights.Prob;
 using QualityInsights.Utils;
 using System.Runtime.CompilerServices; // ConditionalWeakTable
-using System.Collections;
 
 namespace QualityInsights.Patching
 {
@@ -48,6 +47,10 @@ namespace QualityInsights.Patching
         private struct BuildCtx { public Map map; public IntVec3 cell; public ThingDef builtDef; public Pawn worker; }
         private static readonly Dictionary<int, BuildCtx> _buildCtx = new();
         private static readonly HashSet<int> _bumping = new();
+        // Toast suppression (same-tick) for masterwork/legendary messages
+        private static int _suppressTick = -1;
+        private static readonly HashSet<int> _suppressIdsThisTick = new();
+
         [ThreadStatic] internal static bool _samplingNoInspiration;
         [ThreadStatic] private static int _afterSetQDepth;
         [ThreadStatic] private static bool _inCheatEval;
@@ -121,6 +124,18 @@ namespace QualityInsights.Patching
                     Log.Message($"[QualityInsights] Patched {mi.DeclaringType?.Name}.{mi.Name} (int,bool,...)");
             }
 
+            // --- Suppress vanilla "Masterwork!" / "Legendary!" toasts ---
+            // 1.5/1.6 (TaggedString), with & without the historical bool
+            TryPatchMessage(harmony, new[] { typeof(TaggedString), typeof(LookTargets), typeof(MessageTypeDef), typeof(bool) });
+            TryPatchMessage(harmony, new[] { typeof(TaggedString), typeof(LookTargets), typeof(MessageTypeDef) });
+
+            // 1.4 (string), with & without the historical bool
+            TryPatchMessage(harmony, new[] { typeof(string), typeof(LookTargets), typeof(MessageTypeDef), typeof(bool) });
+            TryPatchMessage(harmony, new[] { typeof(string), typeof(LookTargets), typeof(MessageTypeDef) });
+
+            // NEW: also suppress Letters (right-side blue mail)
+            PatchReceiveLetters(harmony);
+
             // Log final quality (and safety-bump if cheat says higher)
             var setQ = typeof(CompQuality)
                 .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
@@ -134,9 +149,17 @@ namespace QualityInsights.Patching
                     return p2 == typeof(ArtGenerationContext) || p2 == typeof(Nullable<ArtGenerationContext>);
                 });
             if (setQ != null)
-                harmony.Patch(setQ, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterSetQuality)));
+            {
+                harmony.Patch(
+                    setQ,
+                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(BeforeSetQuality)),
+                    postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterSetQuality))
+                );
+            }
             else
+            {
                 Log.Error("[QualityInsights] Could not locate CompQuality.SetQuality (signature changed?).");
+            }
 
             // Capture product/pawn/materials right before quality is set
             var postProcess = AccessTools.Method(typeof(GenRecipe), "PostProcessProduct");
@@ -171,6 +194,75 @@ namespace QualityInsights.Patching
                 harmony.Patch(getGizmosBlueprint, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterGetGizmos_Blueprint)));
 
             Log.Message("[QualityInsights] Patches applied.");
+        }
+
+        // Works across overloads; __0=label, __1=text (string or TaggedString), __2=LetterDef, __3=LookTargets
+        public static bool LetterStack_ReceiveLetter_Prefix(object __0, object __1, LetterDef __2, LookTargets __3)
+        {
+            try
+            {
+                // If user didn’t ask for silencing, do nothing
+                if (!QualityInsightsMod.Settings.silenceMasterworkNotifs && !QualityInsightsMod.Settings.silenceLegendaryNotifs)
+                    return true;
+
+                if (_suppressIdsThisTick.Count == 0) return true;
+
+                int now = Find.TickManager?.TicksGame ?? 0;
+                if (now != _suppressTick) { _suppressIdsThisTick.Clear(); return true; }
+
+                var lt = __3;
+                if (!lt.IsValid) return true;
+
+                var t = lt.PrimaryTarget.Thing;
+                if (t == null) return true;
+
+                bool suppress = _suppressIdsThisTick.Contains(t.thingIDNumber)
+                    || (t is MinifiedThing mm && mm.InnerThing != null && _suppressIdsThisTick.Contains(mm.InnerThing.thingIDNumber));
+
+                if (!suppress) return true;
+
+                if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
+                {
+                    string label = __0?.ToString() ?? "<null>";
+                    string def   = __2?.defName ?? "<null>";
+                    Log.Message($"[QI] Suppressed LETTER '{label}' (def={def}) for thing id={t.thingIDNumber} at tick={now}");
+                }
+
+                return false; // block vanilla letter
+            }
+            catch { return true; } // never break gameplay
+        }
+
+        private static void TryPatchMessage(Harmony h, Type[] sig)
+        {
+            var mi = AccessTools.Method(typeof(Messages), nameof(Messages.Message), sig);
+            if (mi != null)
+            {
+                h.Patch(mi,
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(Messages_Message_Prefix_LookTargets)));
+            }
+            else if (Prefs.DevMode)
+            {
+                // Optional: dev log to help verify which overloads exist at runtime
+                try { Log.Message("[QI] Messages.Message overload not found for: " + string.Join(", ", sig.Select(t => t.Name))); } catch { }
+            }
+        }
+
+        private static void PatchReceiveLetters(Harmony h)
+        {
+            // Patch every ReceiveLetter that has a LookTargets parameter
+            var methods = typeof(LetterStack).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .Where(m => m.Name == "ReceiveLetter" && m.GetParameters().Any(p => p.ParameterType == typeof(LookTargets)));
+
+            int count = 0;
+            foreach (var mi in methods)
+            {
+                h.Patch(mi, prefix: new HarmonyMethod(typeof(QualityPatches), nameof(LetterStack_ReceiveLetter_Prefix)));
+                count++;
+            }
+
+            if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
+                Log.Message($"[QualityInsights] Patched LetterStack.ReceiveLetter overloads with LookTargets: {count}");
         }
 
         private static void PatchAllOverloads(Harmony harmony, Type type, string methodName, HarmonyMethod prefix)
@@ -221,6 +313,45 @@ namespace QualityInsights.Patching
                 Log.Message("[QI] MakeRecipeProducts captured mats=[" + string.Join(",", _currentMats ?? new List<string>()) + "]");
         }
 
+        private static void MarkSuppressToastFor(Thing t)
+        {
+            if (t == null) return;
+            int now = Find.TickManager?.TicksGame ?? 0;
+            if (now != _suppressTick) { _suppressTick = now; _suppressIdsThisTick.Clear(); }
+            _suppressIdsThisTick.Add(t.thingIDNumber);
+            if (t is MinifiedThing m && m.InnerThing != null)
+                _suppressIdsThisTick.Add(m.InnerThing.thingIDNumber);
+        }
+
+        // Works for both overloads we patched; Harmony injects arg #1 regardless of text type.
+        // Return false => skip vanilla Messages.Message (no letter, no sound)
+        public static bool Messages_Message_Prefix_LookTargets([HarmonyArgument(1)] LookTargets lookTargets)
+        {
+            try
+            {
+                if (_suppressIdsThisTick.Count == 0) return true;
+
+                int now = Find.TickManager?.TicksGame ?? 0;
+                if (now != _suppressTick) { _suppressIdsThisTick.Clear(); return true; }
+
+                if (!lookTargets.IsValid) return true;
+
+                var t = lookTargets.PrimaryTarget.Thing;
+                if (t == null) return true;
+
+                if (_suppressIdsThisTick.Contains(t.thingIDNumber) ||
+                    (t is MinifiedThing m && m.InnerThing != null && _suppressIdsThisTick.Contains(m.InnerThing.thingIDNumber)))
+                {
+                    if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
+                        Log.Message($"[QI] Suppressed MESSAGE for thing id={t.thingIDNumber} tick={now}");
+                    return false;
+                }
+
+                return true;
+            }
+            catch { return true; } // never break Messages
+        }
+
         public static void MakeRecipeProducts_Postfix()
         {
             // IMPORTANT:
@@ -266,7 +397,8 @@ namespace QualityInsights.Patching
                     defaultLabel = "QI_LiveOdds".Translate(),
                     defaultDesc  = "Show estimated chances of Excellent/Masterwork/Legendary for a chosen pawn & recipe.",
                     icon = TexCommand.DesirePower,
-                    action = () => Find.WindowStack.Add(new UI.ChancesWindow(wt))
+                    action = () => Find.WindowStack.Add(new UI.ChancesWindow(wt)),
+                    hotKey = QI_KeyBindingDefOf.QualityInsights_ShowWorktableOdds   // ← NEW
                 };
                 __result = __result.Concat(new[] { cmd });
                 return;
@@ -280,10 +412,11 @@ namespace QualityInsights.Patching
                 {
                     var cmd = new Command_Action
                     {
-                        defaultLabel = "QI_LiveOdds".Translate(), // reuse key; or add a dedicated one later
+                        defaultLabel = "QI_LiveOdds".Translate(),
                         defaultDesc  = "Show estimated construction quality odds for this building.",
                         icon = TexCommand.DesirePower,
-                        action = () => Find.WindowStack.Add(new UI.ConstructionChancesWindow(frame))
+                        action = () => Find.WindowStack.Add(new UI.ConstructionChancesWindow(frame)),
+                        hotKey = QI_KeyBindingDefOf.QualityInsights_ShowConstructionOdds   // ← NEW
                     };
                     __result = __result.Concat(new[] { cmd });
                 }
@@ -302,7 +435,8 @@ namespace QualityInsights.Patching
                 defaultLabel = "QI_LiveOdds".Translate(),
                 defaultDesc  = "Show estimated construction quality odds for this building.",
                 icon = TexCommand.DesirePower,
-                action = () => Find.WindowStack.Add(new UI.ConstructionChancesWindow(__instance.Map, builtDef))
+                action = () => Find.WindowStack.Add(new UI.ConstructionChancesWindow(__instance.Map, builtDef)),
+                hotKey = QI_KeyBindingDefOf.QualityInsights_ShowConstructionOdds   // ← NEW
             };
             __result = __result.Concat(new[] { cmd });
         }
@@ -553,6 +687,28 @@ namespace QualityInsights.Patching
             return SkillDefOf.Crafting;
         }
 
+        public static void BeforeSetQuality(CompQuality __instance, QualityCategory q)
+        {
+            try
+            {
+                var thing = __instance?.parent;
+                if (thing == null) return;
+
+                if ((q == QualityCategory.Masterwork  && QualityInsightsMod.Settings.silenceMasterworkNotifs) ||
+                    (q == QualityCategory.Legendary   && QualityInsightsMod.Settings.silenceLegendaryNotifs))
+                {
+                    MarkSuppressToastFor(thing);
+
+                    if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
+                    {
+                        int now = Find.TickManager?.TicksGame ?? 0;
+                        Log.Message($"[QI] Marked for suppression id={thing.thingIDNumber} '{thing.LabelCap}' q={q} tick={now}");
+                    }
+                }
+            }
+            catch { /* never break gameplay */ }
+        }
+
         public static void AfterSetQuality(CompQuality __instance, QualityCategory q)
         {
             // --- Reentrancy shield (covers other mods re-calling SetQuality) ---
@@ -641,6 +797,13 @@ namespace QualityInsights.Patching
 
                 int now = Find.TickManager?.TicksGame ?? 0;
 
+                // Optional: silence toasts on Masterwork/Legendary, per settings
+                if ((q == QualityCategory.Masterwork && QualityInsightsMod.Settings.silenceMasterworkNotifs) ||
+                    (q == QualityCategory.Legendary && QualityInsightsMod.Settings.silenceLegendaryNotifs))
+                {
+                    MarkSuppressToastFor(thing);
+                }
+
                 if (_logGuard.TryGetValue(id, out var g) && g.q == q && now - g.tick < 120)
                 {
                     if (DebugLogs)
@@ -676,14 +839,14 @@ namespace QualityInsights.Patching
                         {
                             thingDef = thing.def?.defName ?? "Unknown",
                             stuffDef = thing.Stuff?.defName,
-                            quality  = q,
+                            quality = q,
                             pawnName = worker?.Name?.ToStringShort ?? worker?.LabelShort ?? "Unknown",
                             skillDef = skill?.defName ?? "Unknown",
-                            skillLevelAtFinish   = worker?.skills?.GetSkill(skill)?.Level ?? -1,
-                            inspiredCreativity   = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
+                            skillLevelAtFinish = worker?.skills?.GetSkill(skill)?.Level ?? -1,
+                            inspiredCreativity = _hadInspirationAtRoll ?? (worker?.InspirationDef == InspirationDefOf.Inspired_Creativity),
                             productionSpecialist = _wasProdSpecAtRoll ?? (worker != null && QualityRules.IsProductionSpecialistFor(worker, skill)),
                             gameTicks = now,
-                            mats      = matsForLog
+                            mats = matsForLog
                         });
                     }
                     catch { /* never break gameplay */ }

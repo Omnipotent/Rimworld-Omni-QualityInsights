@@ -28,6 +28,12 @@ namespace QualityInsights
                 Find.WindowStack.Add(new Dialog_ModSettings(Instance));
         }
 
+        public static void SaveSettingsNow()
+        {
+            // This writes the settings file immediately.
+            Instance?.WriteSettings();
+        }
+
         public override void DoSettingsWindowContents(Rect inRect)
         {
             var ls = new Listing_Standard { ColumnWidth = inRect.width };
@@ -37,9 +43,23 @@ namespace QualityInsights
             ls.GapLine();
 
             // Existing toggles
-            ls.CheckboxLabeled("QI_Settings_EnableLogging".Translate(),     ref Settings.enableLogging);
+            ls.CheckboxLabeled("QI_Settings_EnableLogging".Translate(), ref Settings.enableLogging);
             ls.CheckboxLabeled("QI_Settings_EnableLiveChances".Translate(), ref Settings.enableLiveChances);
-            ls.CheckboxLabeled("QI_Settings_EnableCheat".Translate(),       ref Settings.enableCheat);
+            ls.CheckboxLabeled("QI_Settings_EnableCheat".Translate(), ref Settings.enableCheat);
+
+            // Notifications
+            ls.GapLine();
+            ls.Label("QI_Settings_Notifications".Translate());
+            ls.CheckboxLabeled(
+                "QI_Settings_SilenceMasterwork".Translate(),
+                ref Settings.silenceMasterworkNotifs,
+                "QI_Settings_SilenceMasterwork_Tip".Translate()
+            );
+            ls.CheckboxLabeled(
+                "QI_Settings_SilenceLegendary".Translate(),
+                ref Settings.silenceLegendaryNotifs,
+                "QI_Settings_SilenceLegendary_Tip".Translate()
+            );
 
             // Diagnostics
             ls.GapLine();

@@ -7,16 +7,25 @@ namespace QualityInsights
 {
     public class QualityInsightsSettings : ModSettings
     {
-        // existing
         public bool  enableLogging      = true;
         public bool  enableLiveChances  = true;
         public bool  enableCheat        = false;
         public float minCheatChance     = 0.02f; // 2%
         public int   estimationSamples  = 5000;  // Monte Carlo per pawn/skill
+        // Notifications
+        public bool  silenceMasterworkNotifs  = false;
+        public bool  silenceLegendaryNotifs   = false;
 
-        // NEW: UI controls for the Quality Log
+        // UI controls for the Quality Log
         public enum UIFont { Tiny, Small, Medium }
         public UIFont logFont = UIFont.Small;
+
+        // --- Persisted Quality Log filters ---
+        public string savedSearch = string.Empty;   // search box
+        // -1 means "All qualities"
+        public int    savedFilterQuality = -1;
+        // empty means "All skills"; otherwise SkillDef.defName
+        public string savedFilterSkill   = string.Empty;
 
         // multiplicative row/header height scale (applies to both views)
         public float tableRowScale = 1.00f;   // suggest good range 0.9..1.4
@@ -46,6 +55,8 @@ namespace QualityInsights
         {
             base.ExposeData();
             Scribe_Values.Look(ref enableDebugLogs, "QI_enableDebugLogs", false);
+            Scribe_Values.Look(ref silenceMasterworkNotifs, nameof(silenceMasterworkNotifs), false);
+            Scribe_Values.Look(ref silenceLegendaryNotifs,  nameof(silenceLegendaryNotifs),  false);
 
             Scribe_Values.Look(ref enableLogging, nameof(enableLogging), true);
             Scribe_Values.Look(ref enableLiveChances, nameof(enableLiveChances), true);
@@ -61,6 +72,10 @@ namespace QualityInsights
 
             Scribe_Values.Look(ref logFont, nameof(logFont), UIFont.Small);
             Scribe_Values.Look(ref tableRowScale, nameof(tableRowScale), 1.00f);
+
+            Scribe_Values.Look(ref savedSearch,        "QI_savedSearch",        string.Empty);
+            Scribe_Values.Look(ref savedFilterQuality, "QI_savedFilterQuality", -1);
+            Scribe_Values.Look(ref savedFilterSkill,   "QI_savedFilterSkill",   string.Empty);
 
             Scribe_Collections.Look(ref colFractions, nameof(colFractions), LookMode.Value);
             // If loading an older config (wrong count), migrate to current defaults (11 cols).
@@ -95,6 +110,12 @@ namespace QualityInsights
             enableCheat        = false;
             minCheatChance     = 0.02f;
             estimationSamples  = 5000;
+            silenceMasterworkNotifs = false;
+            silenceLegendaryNotifs  = false;
+
+            savedSearch        = string.Empty;
+            savedFilterQuality = -1;
+            savedFilterSkill   = string.Empty;
 
             logFont            = UIFont.Small;
             tableRowScale      = 1.00f;

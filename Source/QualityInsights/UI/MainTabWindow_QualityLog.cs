@@ -349,13 +349,46 @@ namespace QualityInsights.UI
             }
         }
 
+        public override void PostOpen()
+        {
+            base.PostOpen();
+            ApplyPersistedFilters();
+        }
+
+        public override void PreClose()
+        {
+            base.PreClose();
+            // Flush to disk once on close (keystroke-by-keystroke writes aren’t necessary)
+            var s = QualityInsightsMod.Settings;
+            s.savedSearch        = search ?? string.Empty;
+            s.savedFilterQuality = filterQuality.HasValue ? (int)filterQuality.Value : -1;
+            s.savedFilterSkill   = filterSkill ?? string.Empty;
+            QualityInsightsMod.Instance?.WriteSettings();
+        }
+
+        private void ApplyPersistedFilters()
+        {
+            var s = QualityInsightsMod.Settings;
+
+            // search box
+            search = s.savedSearch ?? string.Empty;
+
+            // quality (-1 means “All”)
+            filterQuality = (s.savedFilterQuality >= 0)
+                ? (QualityCategory?) (QualityCategory) s.savedFilterQuality
+                : null;
+
+            // skill (empty means “All”)
+            filterSkill = string.IsNullOrEmpty(s.savedFilterSkill) ? null : s.savedFilterSkill;
+        }
+
         // Format RL seconds as compact "1h 2m", "3m 5s", etc.
         private static string FormatPlayTime(double seconds)
         {
             if (seconds < 0) return "–";
             int s = Mathf.FloorToInt((float)seconds);
             int h = s / 3600; s %= 3600;
-            int m = s / 60;   s %= 60;
+            int m = s / 60; s %= 60;
             if (h > 0) return $"{h}h {m}m";
             if (m > 0) return $"{m}m {s}s";
             return $"{s}s";
@@ -404,7 +437,13 @@ namespace QualityInsights.UI
 
                 // Name the control so we can focus it
                 GUI.SetNextControlName(SearchCtrlName);
-                search = Widgets.TextField(searchBox, search);
+                var newSearch = Widgets.TextField(searchBox, search);
+                if (!string.Equals(newSearch, search))
+                {
+                    search = newSearch;
+                    QualityInsightsMod.Settings.savedSearch = search;   // keep in memory
+                }
+
 
                 // Draw the clear button in the reserved strip (not overlapping the text field)
                 if (showClear)
@@ -422,6 +461,7 @@ namespace QualityInsights.UI
                     if (clicked)
                     {
                         search = string.Empty;
+                        QualityInsightsMod.Settings.savedSearch = string.Empty;
                         GUI.FocusControl(SearchCtrlName);
                     }
 
@@ -434,12 +474,23 @@ namespace QualityInsights.UI
                 if (Widgets.ButtonText(new Rect(x, header.y, QualBtnW, headerH), filterQuality?.ToString() ?? "All qualities"))
                 {
                     var opts = new List<FloatMenuOption>();
+
                     foreach (QualityCategory q in Enum.GetValues(typeof(QualityCategory)))
                     {
                         var localQ = q;
-                        opts.Add(new FloatMenuOption(localQ.ToString(), () => filterQuality = localQ));
+                        opts.Add(new FloatMenuOption(localQ.ToString(), () =>
+                        {
+                            filterQuality = localQ;
+                            QualityInsightsMod.Settings.savedFilterQuality = (int)localQ;
+                        }));
                     }
-                    opts.Add(new FloatMenuOption("All", () => filterQuality = null));
+
+                    opts.Add(new FloatMenuOption("All", () =>
+                    {
+                        filterQuality = (QualityCategory?)null;
+                        QualityInsightsMod.Settings.savedFilterQuality = -1;
+                    }));
+
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
                 x += QualBtnW + Pad;
@@ -454,14 +505,26 @@ namespace QualityInsights.UI
                 if (Widgets.ButtonText(new Rect(x, header.y, SkillBtnW, headerH), filterSkill ?? "All skills"))
                 {
                     var opts = new List<FloatMenuOption>();
+
                     foreach (var sd in skillsPresent)
                     {
                         var local = sd;
-                        opts.Add(new FloatMenuOption(local, () => filterSkill = local));
+                        opts.Add(new FloatMenuOption(local, () =>
+                        {
+                            filterSkill = local;                         // defName string from entries
+                            QualityInsightsMod.Settings.savedFilterSkill = local; 
+                        }));
                     }
-                    opts.Add(new FloatMenuOption("All", () => filterSkill = null));
+
+                    opts.Add(new FloatMenuOption("All", () =>
+                    {
+                        filterSkill = null;
+                        QualityInsightsMod.Settings.savedFilterSkill = string.Empty;
+                    }));
+
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
+
 
                 // Right-aligned header buttons
                 float rx = rect.width - 110f;

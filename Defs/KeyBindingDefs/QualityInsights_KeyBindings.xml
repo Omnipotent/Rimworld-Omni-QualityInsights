@@ -1,15 +1,30 @@
 <Defs>
+  <!-- Existing category + toggle -->
   <KeyBindingCategoryDef>
     <defName>QualityInsights_Category</defName>
     <label>Quality Insights</label>
-    <!-- removed checkKeyConflicts; not a valid field -->
   </KeyBindingCategoryDef>
 
   <KeyBindingDef>
     <defName>QualityInsights_ToggleLog</defName>
     <label>Open Quality log</label>
     <category>QualityInsights_Category</category>
-    <!-- leave unbound by default; omit defaultKeyCodeA/B -->
-    <!-- e.g., to bind: <defaultKeyCodeA>Semicolon</defaultKeyCodeA> -->
+    <!-- leave unbound by default -->
+  </KeyBindingDef>
+
+  <!-- NEW: Worktable odds gizmo (default O) -->
+  <KeyBindingDef>
+    <defName>QualityInsights_ShowWorktableOdds</defName>
+    <label>Show quality odds (worktable)</label>
+    <category>QualityInsights_Category</category>
+    <defaultKeyCodeA>O</defaultKeyCodeA>
+  </KeyBindingDef>
+
+  <!-- NEW: Construction odds gizmo (default O) -->
+  <KeyBindingDef>
+    <defName>QualityInsights_ShowConstructionOdds</defName>
+    <label>Show quality odds (construction)</label>
+    <category>QualityInsights_Category</category>
+    <defaultKeyCodeA>O</defaultKeyCodeA>
   </KeyBindingDef>
 </Defs>

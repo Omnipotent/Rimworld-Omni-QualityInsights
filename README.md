@@ -7,9 +7,9 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 ### Quality Log (Table & Log Views)
 
 * Top-bar button opens a searchable, filterable log of all quality roll outcomes.
-* **Pop out / Dock toggle**  
+* **Pop out / Dock toggle**
   One button switches between a docked main-tab window and a floating window. Opening one closes the other, so only one is visible.
-* **Floating window polish**  
+* **Floating window polish**
   Smaller top margin and a larger draggable area (grab along the top margin or header strip).
 * **Resizable table UI**
   * **Sortable columns** (click header).
@@ -22,17 +22,18 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Inline clear (×)** button inside the search box.
   * **Ctrl/Cmd+F** focuses the search box.
   * Quality and Skill dropdown filters.
-* **Copy helpers (row context menu)**  
+  * **Persistent filters** — your **search text**, **Quality**, and **Skill** filters are **remembered** and restored when you reopen the log (docked or floating).
+* **Copy helpers (row context menu)**
   Right-click any row:
   * **Copy row (friendly)**
   * **Copy row (raw)**
   * **Copy Item defName**
   * **Copy Stuff defName(s)**
-* **Row count status**  
+* **Row count status**
   Bottom-left indicator: **“X of Y shown”** (updates live with search/filters).
 * **Time columns (2):**
   * **Time** — in-game “time ago” (e.g. `2d 4h`).
-  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).  
+  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
     *Ignores time spent paused; updates live while unpaused.*
 * Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials** (distinct list with icons where available; otherwise shows Stuff).
 * **Duplicate suppression** (only one entry per thing even if multiple `SetQuality` calls land).
@@ -65,6 +66,15 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Respects Legendary rules** (still requires inspiration/role to reach Legendary).
 * Implemented as a **safe single-hop bump** via `SetQuality`, with a reentrancy guard and art init safety (ensures `CompArt` is initialized when needed).
 
+### Notifications (optional silencing)
+
+* **Masterwork / Legendary** celebration spam got you down?
+* Toggle **Silence Masterwork** and/or **Silence Legendary** in Mod Settings to suppress:
+  * The **bottom-left toasts** (`Messages.Message`), and
+  * The **right-side Letters** (blue mail icons) for the matching built/crafted item.
+* Works across overloads, matches the specific product (handles **minified** inner things), and is robust to same-tick multiple calls.
+  *(Dev Mode + QI debug logs will show what was suppressed and why.)*
+
 ### Diagnostics & Developer Quality-of-Life
 
 * **Diagnostics** section in Mod Settings:
@@ -72,6 +82,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
     * Flags (Inspired/ProdSpec, tier boost, mask).
     * Raw vs. final shifted distributions.
     * Context (pawn, skill, recipe/builtDef).
+    * **Suppression traces** for Messages/Letters when notification silencing is enabled.
 * Dev-only “**Validate 100k**” buttons in both odds windows (work tables & construction), with results copied to clipboard for easy sharing.
 
 ## How It Works (accuracy & safety)
@@ -88,14 +99,21 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Enable live chances widget** (gizmo on worktables, frames & blueprints).
 * **Enable dev cheat** + **Min Cheat Chance** slider (0%–20%).
 * **Estimation samples** slider (performance/precision trade-off).
+* **Notifications**
+  * **Silence Masterwork** and **Silence Legendary** (suppresses toast + right-side letter).
 * **Diagnostics → Enable debug logs** (verbose `[QI]` logs; Dev Mode only).
 * **Quality Log UI**
   * Font: Tiny / Small / Medium.
   * Row height scale.
   * **Reset column widths** (reverts to sensible defaults) — also available in the table footer.
   * **Open quality log** (quick access).
+  * **Reset ALL settings** (one-click restore of every QI setting).
+* **Retention**
+  * Optional pruning by **age** (in-game days) and/or **entry count** (hard cap).
+* **Exports**
+  * Keep last **N** CSVs and/or cap the export folder by **MB**.
 
-> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.  
+> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.
 > If you use versioned load folders (e.g. `1.5/` or `1.6/` in `About/LoadFolders.xml`), ensure the updated XML is copied to the **active** folder (`<modroot>/<version>/Languages/...`).
 
 ## Controls quick reference
@@ -122,7 +140,7 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 * Click the **Quality Log** button to open the table (sort, resize, export). Use **Pop out/Dock** to switch window mode.
 * Select a **work table**, click the **Quality odds** gizmo, pick a recipe + pawn to view tier odds.
 * Select a **frame** (or **blueprint**) to use the **construction odds** gizmo; pick a constructor pawn to view tier odds.
-* Configure options in **Mod Settings** (cheat threshold/samples, diagnostics, UI preferences).
+* Configure options in **Mod Settings** (notifications, cheat threshold/samples, diagnostics, UI preferences, retention/exports).
 
 ## Compatibility & Notes
 
@@ -135,9 +153,12 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 
 * **Accented/garbled labels** → language keys weren’t found. Copy `Languages/English/Keyed/QualityInsights.xml` into the active version folder (per `About/LoadFolders.xml`) and use Dev Mode → *Reload language files*.
 * **Columns won’t resize or revert unexpectedly** → click **Reset column widths** (footer or settings) to rebuild from defaults.
+* **Still seeing Masterwork/Legendary notices** → check **Notifications** settings. With Dev Mode + QI debug logs enabled, look for `[QI] Marked for suppression…` and “Suppressed MESSAGE/LETTER…” traces around the time of the craft/build.
 
 ## Changelog (recent highlights)
 
+* **New**: **Notification silencing** for **Masterwork/Legendary** — suppresses both the bottom-left toast *and* the right-side **Letter** (blue mail). Handles minified items and same-tick events.
+* **New**: **Persistent filters** — search, Quality, and Skill are saved and restored when the log opens.
 * **New**: **Construction quality odds** gizmo on **frames & blueprints** (choose a pawn, see full Awful→Legendary odds).
 * **New**: **Columns menu** to show/hide columns; added hidden-by-default **Item ID** and **Stuff ID** columns.
 * **New**: **Inline clear (×)** in the search box + **Ctrl/Cmd+F** to focus search.

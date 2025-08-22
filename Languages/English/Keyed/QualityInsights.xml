@@ -37,4 +37,11 @@
 
   <QI_Settings_ClearLog>Clear Quality Log (this save)</QI_Settings_ClearLog>
   <QI_ClearLogMsg>Quality Log cleared for this save.</QI_ClearLogMsg>
+
+  <!-- Settings → Notifications -->
+  <QI_Settings_Notifications>Notifications</QI_Settings_Notifications>
+  <QI_Settings_SilenceMasterwork>Silence Masterwork notifications</QI_Settings_SilenceMasterwork>
+  <QI_Settings_SilenceLegendary>Silence Legendary notifications</QI_Settings_SilenceLegendary>
+  <QI_Settings_SilenceMasterwork_Tip>Prevents the “Masterwork!” toast (and sound) when items are created.</QI_Settings_SilenceMasterwork_Tip>
+  <QI_Settings_SilenceLegendary_Tip>Prevents the “Legendary!” toast (and sound) when items are created.</QI_Settings_SilenceLegendary_Tip>
 </LanguageData>
