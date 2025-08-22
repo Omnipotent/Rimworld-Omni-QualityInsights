@@ -7,17 +7,32 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 ### Quality Log (Table & Log Views)
 
 * Top-bar button opens a searchable, filterable log of all quality roll outcomes.
-* **Pop out / Dock toggle**
-  One button switches between a docked main-tab window and a floating window. Opening one closes the other, so only one is ever visible.
+* **Pop out / Dock toggle**  
+  One button switches between a docked main-tab window and a floating window. Opening one closes the other, so only one is visible.
+* **Floating window polish**  
+  Smaller top margin and a larger draggable area (grab along the top margin or header strip).
 * **Resizable table UI**
   * **Sortable columns** (click header).
   * **Resizable columns** (drag splitters) with **persisted layout** in mod settings.
-  * **Reset column widths** in Mod Settings (works for both docked & popped windows).
+  * **Columns menu** (show/hide columns); includes **raw ID columns** (“Item ID”, “Stuff ID”) that are hidden by default.
+  * **Reset column widths** from **either** the Mod Settings **or** the table footer.
   * **Zebra striping & hover highlights** for readability.
   * **Dynamic last column** auto-fills remaining width.
+* **Search & filters**
+  * **Inline clear (×)** button inside the search box.
+  * **Ctrl/Cmd+F** focuses the search box.
+  * Quality and Skill dropdown filters.
+* **Copy helpers (row context menu)**  
+  Right-click any row:
+  * **Copy row (friendly)**
+  * **Copy row (raw)**
+  * **Copy Item defName**
+  * **Copy Stuff defName(s)**
+* **Row count status**  
+  Bottom-left indicator: **“X of Y shown”** (updates live with search/filters).
 * **Time columns (2):**
   * **Time** — in-game “time ago” (e.g. `2d 4h`).
-  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
+  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).  
     *Ignores time spent paused; updates live while unpaused.*
 * Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials** (distinct list with icons where available; otherwise shows Stuff).
 * **Duplicate suppression** (only one entry per thing even if multiple `SetQuality` calls land).
@@ -27,8 +42,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 ### Live Quality Odds – Work Tables **and Construction**
 
 * **Work tables:** choose a recipe + pawn and see **full Awful → Legendary odds**.
-* **Construction:** odds are available for **frames** *and* **blueprints** via a gizmo.
-  Pick a constructor pawn and view construction quality odds.
+* **Construction:** odds are available for **frames** *and* **blueprints** via a gizmo. Pick a constructor pawn and view construction quality odds.
 * **Accurate skill resolver**
   * Uses recipe `workSkill` when present; otherwise infers: Construction (buildings), Artistic (CompArt/sculptures), Crafting (general).
 * **Boost-aware odds**
@@ -78,11 +92,18 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Quality Log UI**
   * Font: Tiny / Small / Medium.
   * Row height scale.
-  * **Reset column widths** (reverts to sensible defaults).
+  * **Reset column widths** (reverts to sensible defaults) — also available in the table footer.
   * **Open quality log** (quick access).
 
-> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.
+> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.  
 > If you use versioned load folders (e.g. `1.5/` or `1.6/` in `About/LoadFolders.xml`), ensure the updated XML is copied to the **active** folder (`<modroot>/<version>/Languages/...`).
+
+## Controls quick reference
+
+* **Click** column headers to sort; **drag** splitters to resize.
+* **Right-click** a row for copy tools.
+* **Ctrl/Cmd+F** focuses the search box; click the **×** inside the box to clear.
+* **Pop out / Dock** toggles the window mode.
 
 ## Build
 
@@ -113,13 +134,15 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 ## Troubleshooting
 
 * **Accented/garbled labels** → language keys weren’t found. Copy `Languages/English/Keyed/QualityInsights.xml` into the active version folder (per `About/LoadFolders.xml`) and use Dev Mode → *Reload language files*.
-* **Columns won’t resize or revert unexpectedly** → click **Reset column widths** in settings to rebuild from defaults.
+* **Columns won’t resize or revert unexpectedly** → click **Reset column widths** (footer or settings) to rebuild from defaults.
 
 ## Changelog (recent highlights)
 
 * **New**: **Construction quality odds** gizmo on **frames & blueprints** (choose a pawn, see full Awful→Legendary odds).
-* **New**: Dev-only **Validate 100k** buttons in both odds windows; results are copied to clipboard.
-* **Improved**: Cheat is **isolated from sampling** (no bias); a **single-hop safe bump** upgrades results when threshold criteria are met, with reentrancy guards and art init safety.
-* **Improved**: Deterministic seeding + smarter caching (keyed by pawn, recipe/builtDef, boost mask, cheat flag) for very fast UI refresh.
-* **Improved**: Materials and worker attribution are more robust across minified items and construction completion.
-* **Fixed**: Rare crash when dev cheat was enabled (now guarded by recursion shields, inspiration side-effect suppression, and clean sampling separation).
+* **New**: **Columns menu** to show/hide columns; added hidden-by-default **Item ID** and **Stuff ID** columns.
+* **New**: **Inline clear (×)** in the search box + **Ctrl/Cmd+F** to focus search.
+* **New**: **Row context menu** (right-click) to copy friendly/raw rows and defNames.
+* **New**: **Row count** status — “X of Y shown”.
+* **New**: **Reset column widths** button in the table footer.
+* **Improved**: Floating window drag area and top margin.
+* **Improved**: Deterministic sampling, caching, and cheat isolation.

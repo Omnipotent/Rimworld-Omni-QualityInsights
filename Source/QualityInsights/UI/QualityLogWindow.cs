@@ -17,6 +17,7 @@ namespace QualityInsights.UI
         private static float DragBarH => Mathf.Ceil(Text.LineHeight) + 6f; // line height + padding
         public override Vector2 InitialSize => new(1100f, 720f);
         private int _lastW, _lastH;
+        protected override float Margin => 6f;   // default is ~18
 
         public QualityLogWindow()
         {
@@ -63,23 +64,29 @@ namespace QualityInsights.UI
             absorbInputAroundWindow = _draggingWindow || _tab.IsDraggingSplitter;
             preventCameraMotion     = _draggingWindow || _tab.IsDraggingSplitter;
 
-            var dragBar = new Rect(inRect.x, inRect.y, inRect.width, DragBarH);
-            Widgets.DrawLightHighlight(dragBar);
+            // --- NEW: make the entire top margin + our bar draggable ---
+            float topMargin = inRect.y; // Window’s built-in margin (usually ~18px)
+            var visualBar   = new Rect(inRect.x, inRect.y, inRect.width, DragBarH);                    // what we draw
+            var dragHit     = new Rect(0f, 0f, windowRect.width, topMargin + DragBarH);                // what we grab
+
+            Widgets.DrawLightHighlight(visualBar);
+
+            // A small “no-drag” zone where the close X sits, so we don’t steal its clicks
+            var noDragTopRight = new Rect(windowRect.width - 40f, 0f, 40f, 40f);
 
             var ev = Event.current;
 
             if (!(_tab.IsDraggingSplitter || _tab.IsHoveringSplitter))
             {
-                if (ev.type == EventType.MouseDown && ev.button == 0 && dragBar.Contains(ev.mousePosition))
+                if (ev.type == EventType.MouseDown && ev.button == 0 && dragHit.Contains(ev.mousePosition) && !noDragTopRight.Contains(ev.mousePosition))
                 {
                     _draggingWindow = true;
-                    _dragStartMouseScreen = Verse.UI.MousePositionOnUIInverted; // SCREEN/UI space
-                    _dragStartWinPos      = windowRect.position;                 // absolute window pos
+                    _dragStartMouseScreen = Verse.UI.MousePositionOnUIInverted;
+                    _dragStartWinPos      = windowRect.position;
                     ev.Use();
                 }
                 else if (ev.type == EventType.MouseDrag && _draggingWindow && ev.button == 0)
                 {
-                    // 1:1 movement in screen space
                     Vector2 curScreen = Verse.UI.MousePositionOnUIInverted;
                     Vector2 delta     = curScreen - _dragStartMouseScreen;
                     windowRect.position = _dragStartWinPos + delta;
@@ -88,13 +95,10 @@ namespace QualityInsights.UI
                 else if ((ev.type == EventType.MouseUp || ev.rawType == EventType.MouseUp) && _draggingWindow)
                 {
                     _draggingWindow = false;
-
-                    // Clamp once at the end to keep it on-screen
                     float maxX = Verse.UI.screenWidth  - windowRect.width;
                     float maxY = Verse.UI.screenHeight - windowRect.height;
                     windowRect.x = Mathf.Clamp(windowRect.x, 0f, Mathf.Max(0f, maxX));
                     windowRect.y = Mathf.Clamp(windowRect.y, 0f, Mathf.Max(0f, maxY));
-
                     ev.Use();
                 }
             }

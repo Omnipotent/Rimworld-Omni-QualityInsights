@@ -11,28 +11,36 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - Pawn picker for construction odds, mirroring the worktable window UX.
 - **Dev validation tools**:
   - **Validate 100k** button in both odds windows (worktable + construction). Runs a large-N baseline, compares vs. UI, writes a detailed table to the log, and copies results to the clipboard with a toast.
-- **Settings → Quality Log UI quality-of-life**:
-  - **Open quality log** button for quick access.
-  - **Font** (Tiny/Small/Medium) and **Row height scale** controls, applied across the table UI.
-- **Worker / materials attribution**:
-  - More robust binding of bill products to the correct **worker pawn** via a safe `ConditionalWeakTable`.
-  - Materials captured at recipe-time and persisted through minification/replacement; used for richer log rows.
+- **Quality Log – Columns menu**:
+  - Show/hide any column; two new raw columns **Item ID** and **Stuff ID** (default hidden).
+- **Quality Log – Search niceties**:
+  - **Inline clear (×)** button when the box is non-empty.
+  - **Ctrl/Cmd+F** focuses the search box.
+- **Quality Log – Copy helpers (context menu)**:
+  - Right-click a row → **Copy row (friendly)**, **Copy row (raw)**, **Copy Item defName**, **Copy Stuff defName(s)**.
+- **Quality Log – Row count**:
+  - Bottom-left **“X of Y shown”** indicator that updates with filters/search.
+- **Quality Log – Footer reset**:
+  - **Reset widths** button that calls the same reset as Mod Settings.
+- **Floating window polish**:
+  - Smaller top margin and a larger draggable strip.
 
 ### Changed
 - **Cheat isolation & safety**:
-  - Cheat evaluation now samples a **true baseline** (cheat force-disabled, inspirations stripped, side-effects suppressed), then applies a **single-hop safe bump** if the chosen tier meets your threshold.
+  - Cheat evaluation samples a **true baseline** (cheat force-disabled, inspirations stripped, side-effects suppressed), then applies a **single-hop safe bump** if the chosen tier meets your threshold.
   - Legendary rules still apply (requires inspiration or Production Specialist).
   - `CompArt` is initialized when needed before bumping to avoid null art data.
 - **Deterministic, faster odds**:
-  - Stable seeding and **smarter caching** keyed by pawn, recipe/**builtDef**, boost mask (Inspired/ProdSpec), and the **cheat flag** for consistently snappy UI.
+  - Stable seeding and **smarter caching** keyed by pawn, recipe/**builtDef**, boost mask, and the **cheat flag** for consistently snappy UI.
 - **Skill resolution** is unified:
   - Uses `recipe.workSkill` when present; otherwise: **Construction** (buildings), **Artistic** (CompArt/sculptures), else **Crafting**. Applied consistently in odds and logging.
 - **Materials/worker tracking**:
   - Improved capture during `MakeRecipeProducts/PostProcessProduct` and construction completion, including **minified** items and furniture.
 - **CSV & table**:
-  - (From prior update) Header includes `PlayTime`; export path has **Open folder** and auto-prunes by count/size (settings).
+  - Header includes `PlayTime`; export path has **Open folder** and auto-prunes by count/size (settings).
 
 ### Fixed
+- **Search clear button** now correctly clears the text (click was previously intercepted by the text field).
 - **Crash with dev cheat enabled** in rare re-entrancy/recursion paths:
   - Guarded with an internal **re-entrancy shield**, an **_inCheatEval** recursion gate, and **inspiration side-effect suppression** during sampling/cheat evaluation.
 - **Duplicate log entries**:
@@ -53,7 +61,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 - Validation output (100k) provides per-tier comparisons and a max absolute delta summary, copied to the clipboard for easy sharing.
 
 ### Migration Notes
-- If your saved column layout predates the newer columns/UI options, use **Reset column widths** in Mod Settings once.
+- If your saved column layout predates the newer columns/UI options, use **Reset column widths** (footer or Mod Settings) once.
 - Assets (`Languages/...`, textures) are not embedded in the DLL—keep them in your mod folder tree.
 - No data migration is required for existing saves; cheat/odds logic changes are internal and backward-compatible.
 
@@ -67,4 +75,4 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 
 ---
 
-*Tip: when cutting a release, replace **[Unreleased]** with a version and date (e.g., `## [1.2.0] – 2025-08-21`) and start a fresh **[Unreleased]** section above it.*
+*Tip: when cutting a release, replace **[Unreleased]** with a version/date (e.g., `## [1.2.0] – 2025-08-21`) and start a fresh **[Unreleased]** section above it.*

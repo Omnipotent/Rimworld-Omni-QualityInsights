@@ -56,6 +56,7 @@ namespace QualityInsights.UI
 
         private Vector2 scroll;
         private string search = string.Empty;
+        private const string SearchCtrlName = "QI_SearchBox";   // NEW: for focusing the search box
         private QualityCategory? filterQuality = null;
         private string? filterSkill = null;  // defName from entries
 
@@ -151,6 +152,58 @@ namespace QualityInsights.UI
                 if (!hidden.Contains(t.key)) vis.Add(t.id);
             if (vis.Count == 0) vis.Add(Col.Time); // safety
             return vis;
+        }
+
+        // NEW: right-click copy menu
+        private void MaybeContextCopy(Rect rowRect, QualityLogEntry e)
+        {
+            var ev = Event.current;
+            if (ev.type == EventType.MouseDown && ev.button == 1 && rowRect.Contains(ev.mousePosition))
+            {
+                string BuildFriendly()
+                {
+                    string pawn  = e.pawnName ?? "Unknown";
+                    string skill = e.skillDef ?? "Unknown";
+                    string item  = FriendlyThingLabel(e.thingDef);
+                    string stuffFriendly = e.HasMats
+                        ? string.Join("+", (e.mats ?? new List<string>()).Select(FriendlyDefLabel))
+                        : FriendlyDefLabel(e.stuffDef);
+                    string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
+                                (e.productionSpecialist ? "ProdSpec" : string.Empty);
+                    return $"{e.TimeAgoString} | {pawn} ({skill} {e.skillLevelAtFinish}) ➜ {e.quality} | {item} | {stuffFriendly} | {tags}".TrimEnd(' ', '|');
+                }
+
+                string BuildRaw()
+                {
+                    string stuffRaw = e.HasMats
+                        ? string.Join("+", e.mats ?? new List<string>())
+                        : (e.stuffDef ?? string.Empty);
+                    string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
+                                (e.productionSpecialist ? "ProdSpec" : string.Empty);
+                    return $"{e.gameTicks},{e.pawnName},{e.skillDef},{e.skillLevelAtFinish},{e.quality},{e.thingDef},{stuffRaw},{tags}";
+                }
+
+                void Copy(string s)
+                {
+                    GUIUtility.systemCopyBuffer = s ?? string.Empty;
+                    Messages.Message("Copied to clipboard", MessageTypeDefOf.TaskCompletion, false);
+                }
+
+                string stuffOnly = e.HasMats
+                    ? string.Join("+", e.mats ?? new List<string>())
+                    : (e.stuffDef ?? string.Empty);
+
+                var opts = new List<FloatMenuOption>
+                {
+                    new FloatMenuOption("Copy row (friendly)", () => Copy(BuildFriendly())),
+                    new FloatMenuOption("Copy row (raw)",      () => Copy(BuildRaw())),
+                    new FloatMenuOption("Copy Item defName",   () => Copy(e.thingDef ?? string.Empty)),
+                    new FloatMenuOption("Copy Stuff defName(s)", () => Copy(stuffOnly)),
+                };
+
+                Find.WindowStack.Add(new FloatMenu(opts));
+                ev.Use();
+            }
         }
 
         // Cross-platform “reveal in Finder/Explorer/Files”
@@ -324,12 +377,60 @@ namespace QualityInsights.UI
                 // ===== Header (filters + toggle/export) =====
                 var header = new Rect(0, 0, rect.width, headerH);
 
+                var ev = Event.current; // reuse
+
                 var searchLabel = new Rect(0, header.y, 70f, headerH);
                 Widgets.Label(searchLabel, "Search:");
-                var searchBox = new Rect(searchLabel.xMax + 6f, header.y, rect.width * 0.28f, headerH);
+
+                // Keep a fixed overall width for the search area (textbox + clear button)
+                float searchAreaW = rect.width * 0.28f;
+                float searchX     = searchLabel.xMax + 6f;
+
+                // Ctrl/Cmd+F focuses the search box
+                if (ev.type == EventType.KeyDown && (ev.control || ev.command) && ev.keyCode == KeyCode.F)
+                {
+                    GUI.FocusControl(SearchCtrlName);
+                    ev.Use();
+                }
+
+                // If there’s text, reserve room for the clear button; otherwise 0
+                bool  showClear = !string.IsNullOrEmpty(search);
+                float clearSz   = Mathf.Min(22f, headerH - 6f);
+                float clearPad  = 4f;
+                float reserved  = showClear ? (clearSz + clearPad) : 0f;
+
+                // Text field uses the left portion of the search area
+                var searchBox = new Rect(searchX, header.y, searchAreaW - reserved, headerH);
+
+                // Name the control so we can focus it
+                GUI.SetNextControlName(SearchCtrlName);
                 search = Widgets.TextField(searchBox, search);
 
-                float x = searchBox.xMax + Pad;
+                // Draw the clear button in the reserved strip (not overlapping the text field)
+                if (showClear)
+                {
+                    // position the “×” inside the right-hand reserved strip
+                    var clearRect = new Rect(searchX + searchAreaW - clearSz,
+                                            header.y + (headerH - clearSz) * 0.5f,
+                                            clearSz, clearSz);
+
+                    // Use the image button if available, else a text fallback
+                    bool clicked =
+                        (TexButton.CloseXSmall != null && Widgets.ButtonImage(clearRect, TexButton.CloseXSmall))
+                        || (TexButton.CloseXSmall == null && Widgets.ButtonText(clearRect, "×"));
+
+                    if (clicked)
+                    {
+                        search = string.Empty;
+                        GUI.FocusControl(SearchCtrlName);
+                    }
+
+                    TooltipHandler.TipRegion(clearRect, "Clear");
+                }
+
+                // Continue layout to the right of the whole search area
+                float x = searchX + searchAreaW + Pad;
+
                 if (Widgets.ButtonText(new Rect(x, header.y, QualBtnW, headerH), filterQuality?.ToString() ?? "All qualities"))
                 {
                     var opts = new List<FloatMenuOption>();
@@ -418,6 +519,8 @@ namespace QualityInsights.UI
                 if (!string.IsNullOrEmpty(filterSkill)) rows = rows.Where(e => string.Equals(e.skillDef, filterSkill, StringComparison.OrdinalIgnoreCase));
 
                 var list = rows.ToList();
+                int totalCount = comp.entries.Count;
+                int shownCount = list.Count;
 
                 // ===== Body =====
                 var body = new Rect(0, headerH + 8f, rect.width, rect.height - headerH - 8f - FooterH);
@@ -428,7 +531,19 @@ namespace QualityInsights.UI
                 var footer = new Rect(0, rect.height - FooterH, rect.width, FooterH);
 
                 float bw = 100f, gap = 8f;
-                float xRight = footer.xMax - (bw * 2 + gap * 2 + 90f) - 6f;
+                float resetW = 120f;
+
+                // Right cluster: [Reset widths] [Export CSV] [Open folder] [Settings]
+                float clusterW = resetW + gap + bw + gap + 90f + gap + bw;
+                float xRight   = footer.xMax - clusterW - 6f;
+
+                // Reset widths (only meaningful in Table view, but harmless otherwise)
+                if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, resetW, 28f), "Reset widths"))
+                {
+                    ResetColumnsToDefaults();
+                    Messages.Message("Column widths reset.", MessageTypeDefOf.TaskCompletion, false);
+                }
+                xRight += resetW + gap;
 
                 // Export
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, bw, 28f), "QI_ExportCSV".Translate()))
@@ -454,6 +569,10 @@ namespace QualityInsights.UI
                 fx += 88f;
                 if (Widgets.ButtonText(new Rect(fx, footer.y + 3f, 70f, 28f), s_viewMode == ViewMode.Log ? "Log ✓" : "Log"))
                     s_viewMode = ViewMode.Log;
+
+                // NEW: “X of Y shown” counter (bottom-left)
+                float afterButtonsX = 4f + 80f + 8f + 70f + 8f;
+                Widgets.Label(new Rect(afterButtonsX, footer.y + 8f, 260f, 20f), $"{shownCount:n0} of {totalCount:n0} shown");
             }
             finally
             {
@@ -510,6 +629,7 @@ namespace QualityInsights.UI
             foreach (var e in list)
             {
                 var r = new Rect(0, y, viewRect.width, rowH);
+                MaybeContextCopy(r, e);
                 if ((idx & 1) == 1) DrawZebra(r);
                 if (Mouse.IsOver(r)) Widgets.DrawHighlight(r);
 
@@ -674,6 +794,7 @@ namespace QualityInsights.UI
             {
                 float x = 0f;
                 var row = new Rect(0, y, viewRect.width, rowH);
+                MaybeContextCopy(row, e); // NEW
                 if ((idx & 1) == 1) DrawZebra(row);
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
