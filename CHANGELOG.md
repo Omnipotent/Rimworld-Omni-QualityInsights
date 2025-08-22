@@ -6,6 +6,11 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 ## [Unreleased]
 
 ### Added
+- **Quality Log – Reset filters button**:
+  - One-click clear of **Search**, **Quality**, and **Skill**. Persists the cleared state and focuses the search box.
+- **Quality Log – Materials-aware search**:
+  - Search now matches **Stuff** *and* per-ingredient **materials** for multi-material items.
+  - Matches both **raw defNames** and **friendly labels** (e.g., “Steel + Plasteel”).
 - **Notification silencing (Masterwork / Legendary)**:
   - New Mod Settings toggles: **Silence Masterwork**, **Silence Legendary**.
   - Suppresses **bottom-left toasts** (`Messages.Message`) **and** **right-side Letters** (blue mail) for the specific produced/built thing.

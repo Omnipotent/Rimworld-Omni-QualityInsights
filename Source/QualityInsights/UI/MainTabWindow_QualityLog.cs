@@ -14,7 +14,7 @@ namespace QualityInsights.UI
     public class MainTabWindow_QualityLog : MainTabWindow
     {
         // ===== POP/DOCK TOGGLE STATE =====
-        private static QualityLogWindow s_floatingWin; // currently popped-out window (if any)
+        private static QualityLogWindow? s_floatingWin; // currently popped-out window (if any)
 
         private static bool FloatingOpen =>
             s_floatingWin != null && Find.WindowStack != null && Find.WindowStack.IsOpen(s_floatingWin);
@@ -127,6 +127,15 @@ namespace QualityInsights.UI
         private static string HeaderFor(Col c) => AllCols.First(t => t.id == c).header;
         private static string KeyFor(Col c)    => AllCols.First(t => t.id == c).key;
         private static int IndexOf(Col c)      => Array.FindIndex(AllCols, t => t.id == c);
+
+        // --- helpers for case-insensitive contains ---
+        private static bool ContainsCI(string s, string needle)
+            => !string.IsNullOrEmpty(s) && s.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+        private static bool AnyCI(IEnumerable<string> seq, string needle)
+            => seq != null && seq.Any(s => ContainsCI(s, needle));
+
+        // one-time init of saved filters so the view opens "as you left it"
+        private bool _filtersInitialized = false;
 
         private static string FriendlyThingLabel(string defNameOrNull)
         {
@@ -401,6 +410,17 @@ namespace QualityInsights.UI
             float rowH = 28f * QualityInsightsMod.Settings.tableRowScale;
             float headerH = 28f * QualityInsightsMod.Settings.tableRowScale;
 
+            if (!_filtersInitialized)
+            {
+                var s = QualityInsightsMod.Settings;
+                search = s.savedSearch ?? string.Empty;
+                filterQuality = s.savedFilterQuality >= 0
+                    ? (QualityCategory?) (QualityCategory) s.savedFilterQuality
+                    : null;
+                filterSkill = string.IsNullOrEmpty(s.savedFilterSkill) ? null : s.savedFilterSkill;
+                _filtersInitialized = true;
+            }
+
             try
             {
                 var comp = QualityLogComponent.Ensure(Current.Game);
@@ -417,7 +437,7 @@ namespace QualityInsights.UI
 
                 // Keep a fixed overall width for the search area (textbox + clear button)
                 float searchAreaW = rect.width * 0.28f;
-                float searchX     = searchLabel.xMax + 6f;
+                float searchX = searchLabel.xMax + 6f;
 
                 // Ctrl/Cmd+F focuses the search box
                 if (ev.type == EventType.KeyDown && (ev.control || ev.command) && ev.keyCode == KeyCode.F)
@@ -427,23 +447,22 @@ namespace QualityInsights.UI
                 }
 
                 // If there’s text, reserve room for the clear button; otherwise 0
-                bool  showClear = !string.IsNullOrEmpty(search);
-                float clearSz   = Mathf.Min(22f, headerH - 6f);
-                float clearPad  = 4f;
-                float reserved  = showClear ? (clearSz + clearPad) : 0f;
+                bool showClear = !string.IsNullOrEmpty(search);
+                float clearSz = Mathf.Min(22f, headerH - 6f);
+                float clearPad = 4f;
+                float reserved = showClear ? (clearSz + clearPad) : 0f;
 
                 // Text field uses the left portion of the search area
                 var searchBox = new Rect(searchX, header.y, searchAreaW - reserved, headerH);
 
                 // Name the control so we can focus it
                 GUI.SetNextControlName(SearchCtrlName);
-                var newSearch = Widgets.TextField(searchBox, search);
-                if (!string.Equals(newSearch, search))
+                var prevSearch = search;
+                search = Widgets.TextField(searchBox, search);
+                if (!string.Equals(prevSearch, search))
                 {
-                    search = newSearch;
-                    QualityInsightsMod.Settings.savedSearch = search;   // keep in memory
+                    QualityInsightsMod.Settings.savedSearch = search ?? string.Empty; // in-memory persist
                 }
-
 
                 // Draw the clear button in the reserved strip (not overlapping the text field)
                 if (showClear)
@@ -471,10 +490,10 @@ namespace QualityInsights.UI
                 // Continue layout to the right of the whole search area
                 float x = searchX + searchAreaW + Pad;
 
+                // Quality dropdown (goes before the Skill dropdown)
                 if (Widgets.ButtonText(new Rect(x, header.y, QualBtnW, headerH), filterQuality?.ToString() ?? "All qualities"))
                 {
                     var opts = new List<FloatMenuOption>();
-
                     foreach (QualityCategory q in Enum.GetValues(typeof(QualityCategory)))
                     {
                         var localQ = q;
@@ -484,10 +503,9 @@ namespace QualityInsights.UI
                             QualityInsightsMod.Settings.savedFilterQuality = (int)localQ;
                         }));
                     }
-
                     opts.Add(new FloatMenuOption("All", () =>
                     {
-                        filterQuality = (QualityCategory?)null;
+                        filterQuality = null;
                         QualityInsightsMod.Settings.savedFilterQuality = -1;
                     }));
 
@@ -495,9 +513,10 @@ namespace QualityInsights.UI
                 }
                 x += QualBtnW + Pad;
 
+                // Build the list of skills present for the dropdown
                 var skillsPresent = comp.entries
                     .Select(e => e.skillDef ?? "Unknown")
-                    .Where(s => !string.IsNullOrEmpty(s))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -511,11 +530,10 @@ namespace QualityInsights.UI
                         var local = sd;
                         opts.Add(new FloatMenuOption(local, () =>
                         {
-                            filterSkill = local;                         // defName string from entries
-                            QualityInsightsMod.Settings.savedFilterSkill = local; 
+                            filterSkill = local;
+                            QualityInsightsMod.Settings.savedFilterSkill = local ?? string.Empty;
                         }));
                     }
-
                     opts.Add(new FloatMenuOption("All", () =>
                     {
                         filterSkill = null;
@@ -525,6 +543,27 @@ namespace QualityInsights.UI
                     Find.WindowStack.Add(new FloatMenu(opts));
                 }
 
+                // advance past the Skill dropdown
+                x += SkillBtnW + Pad;
+
+                // Reset filters button (resets search + quality + skill)
+                const float ResetBtnW = 110f;
+                if (Widgets.ButtonText(new Rect(x, header.y, ResetBtnW, headerH), "Reset filters"))
+                {
+                    // Clear UI state
+                    search = string.Empty;
+                    filterQuality = null;
+                    filterSkill = null;
+
+                    // Persist in-memory and to disk
+                    QualityInsightsMod.Settings.savedSearch = string.Empty;
+                    QualityInsightsMod.Settings.savedFilterQuality = -1;
+                    QualityInsightsMod.Settings.savedFilterSkill = string.Empty;
+                    QualityInsightsMod.SaveSettingsNow();
+
+                    GUI.FocusControl(SearchCtrlName);
+                }
+                x += ResetBtnW + Pad;
 
                 // Right-aligned header buttons
                 float rx = rect.width - 110f;
@@ -532,7 +571,7 @@ namespace QualityInsights.UI
                 if (Widgets.ButtonText(new Rect(rx, header.y, 100f, headerH), toggleLabel))
                 {
                     if (FloatingOpen) DockAndClosePopOut();
-                    else              PopOutAndCloseDock();
+                    else PopOutAndCloseDock();
                 }
                 rx -= 110f;
 
@@ -572,14 +611,43 @@ namespace QualityInsights.UI
                 }
 
                 // ===== Apply filters =====
-                if (!string.IsNullOrWhiteSpace(search))
+                string term = (search ?? string.Empty).Trim();
+                if (!string.IsNullOrEmpty(term))
                 {
                     rows = rows.Where(e =>
-                        (!string.IsNullOrEmpty(e.pawnName) && e.pawnName.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                        (!string.IsNullOrEmpty(e.thingDef) && e.thingDef.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0));
+                    {
+                        // raw basics
+                        bool hitPawn   = ContainsCI(e.pawnName, term);
+                        bool hitSkill  = ContainsCI(e.skillDef, term);
+                        bool hitItemID = ContainsCI(e.thingDef, term);
+                        bool hitItemFriendly = ContainsCI(FriendlyThingLabel(e.thingDef), term);
+
+                        // stuff (raw + friendly)
+                        bool hitStuffRaw      = ContainsCI(e.stuffDef, term);
+                        bool hitStuffFriendly = ContainsCI(FriendlyDefLabel(e.stuffDef), term);
+
+                        // materials (joined) raw + friendly
+                        var mats = e.mats ?? new List<string>();
+                        bool hitMatsRaw      = AnyCI(mats, term);
+                        bool hitMatsFriendly = AnyCI(mats.Select(FriendlyDefLabel), term);
+
+                        // tags
+                        string tags = (e.inspiredCreativity ? "Inspired " : string.Empty)
+                                    + (e.productionSpecialist ? "ProdSpec" : string.Empty);
+                        bool hitTags = ContainsCI(tags, term);
+
+                        return hitPawn || hitSkill || hitItemID || hitItemFriendly
+                            || hitStuffRaw || hitStuffFriendly
+                            || hitMatsRaw || hitMatsFriendly
+                            || hitTags;
+                    });
                 }
-                if (filterQuality.HasValue) rows = rows.Where(e => e.quality == filterQuality);
-                if (!string.IsNullOrEmpty(filterSkill)) rows = rows.Where(e => string.Equals(e.skillDef, filterSkill, StringComparison.OrdinalIgnoreCase));
+
+                if (filterQuality.HasValue)
+                    rows = rows.Where(e => e.quality == filterQuality);
+
+                if (!string.IsNullOrEmpty(filterSkill))
+                    rows = rows.Where(e => string.Equals(e.skillDef, filterSkill, StringComparison.OrdinalIgnoreCase));
 
                 var list = rows.ToList();
                 int totalCount = comp.entries.Count;
@@ -598,7 +666,7 @@ namespace QualityInsights.UI
 
                 // Right cluster: [Reset widths] [Export CSV] [Open folder] [Settings]
                 float clusterW = resetW + gap + bw + gap + 90f + gap + bw;
-                float xRight   = footer.xMax - clusterW - 6f;
+                float xRight = footer.xMax - clusterW - 6f;
 
                 // Reset widths (only meaningful in Table view, but harmless otherwise)
                 if (Widgets.ButtonText(new Rect(xRight, footer.y + 3f, resetW, 28f), "Reset widths"))

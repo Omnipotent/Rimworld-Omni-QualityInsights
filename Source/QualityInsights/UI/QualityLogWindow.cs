@@ -49,6 +49,7 @@ namespace QualityInsights.UI
         {
             base.PostClose();
             MainTabWindow_QualityLog.UnregisterFloating(this);
+            QualityInsightsMod.SaveSettingsNow();
         }
 
         public override void DoWindowContents(Rect inRect)

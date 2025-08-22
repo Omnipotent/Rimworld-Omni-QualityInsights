@@ -21,7 +21,9 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Search & filters**
   * **Inline clear (×)** button inside the search box.
   * **Ctrl/Cmd+F** focuses the search box.
-  * Quality and Skill dropdown filters.
+  * **Quality** and **Skill** dropdown filters.
+  * **Reset filters** button (next to filters) — clears **Search**, **Quality**, and **Skill** in one click and persists the cleared state.
+  * **Materials-aware search** — search matches **Stuff** *and* per-ingredient **materials** (for multi-mat items) using **raw defNames** *and* **friendly labels**.
   * **Persistent filters** — your **search text**, **Quality**, and **Skill** filters are **remembered** and restored when you reopen the log (docked or floating).
 * **Copy helpers (row context menu)**
   Right-click any row:
@@ -121,6 +123,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Click** column headers to sort; **drag** splitters to resize.
 * **Right-click** a row for copy tools.
 * **Ctrl/Cmd+F** focuses the search box; click the **×** inside the box to clear.
+* **Reset filters** clears **Search/Quality/Skill**.
 * **Pop out / Dock** toggles the window mode.
 
 ## Build
@@ -157,6 +160,8 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 
 ## Changelog (recent highlights)
 
+* **New**: **Reset filters** button — one click clears Search/Quality/Skill and persists the cleared state.
+* **New**: **Materials-aware search** — search matches Stuff *and* per-ingredient materials (multi-mat) by raw defName and friendly label.
 * **New**: **Notification silencing** for **Masterwork/Legendary** — suppresses both the bottom-left toast *and* the right-side **Letter** (blue mail). Handles minified items and same-tick events.
 * **New**: **Persistent filters** — search, Quality, and Skill are saved and restored when the log opens.
 * **New**: **Construction quality odds** gizmo on **frames & blueprints** (choose a pawn, see full Awful→Legendary odds).
