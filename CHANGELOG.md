@@ -3,101 +3,73 @@
 All notable changes to **Quality Insights** will be documented in this file.
 This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conventions and semantic versioning.
 
-## [Unreleased]
+## [1.0.0] – Initial release
 
 ### Added
-- **Quality Log – Responsive header/footer + overflow (“⋯ More”)**
-  - Buttons **auto-size** to fit labels and avoid overlap on small windows or large UI scales.
-  - The **search field shrinks first**; lower-priority actions flow into a **“⋯ More”** menu.
-  - Header overflow may include: **Reset filters**, **Columns**, **Pop out/Dock**.  
-    Footer overflow may include: **Open folder**, **Reset widths**, **Export CSV**, **Settings** (as needed).
-  - Scoped **only** to the Quality Log (docked and popped out).
-- **Quality Log – Reset filters button**:
-  - One-click clear of **Search**, **Quality**, and **Skill**. Persists the cleared state and focuses the search box.
-- **Quality Log – Materials-aware search**:
-  - Search now matches **Stuff** *and* per-ingredient **materials** for multi-material items.
-  - Matches both **raw defNames** and **friendly labels** (e.g., “Steel + Plasteel”).
-- **Notification silencing (Masterwork / Legendary)**:
-  - New Mod Settings toggles: **Silence Masterwork**, **Silence Legendary**.
-  - Suppresses **bottom-left toasts** (`Messages.Message`) **and** **right-side Letters** (blue mail) for the specific produced/built thing.
-  - Robust matching via same-tick product IDs, including **minified** inner things.
-  - Dev logs (when enabled) report both the “mark for suppression” and the actual message/letter blocks.
-- **Persistent filters for the Quality Log**:
-  - **Search**, **Quality**, and **Skill** filters are **saved** to settings and **restored** when reopening the log (works in both docked and floating windows).
-  - Updates persist in-memory immediately; settings are flushed on window close.
-- **Reset ALL settings** button in Mod Settings (restores every QI setting).
-- **Construction quality odds**:
-  - Gizmo on **Frames** *and* **Blueprints** to preview full Awful→Legendary odds before/while building.
-  - Pawn picker for construction odds, mirroring the worktable window UX.
-- **Dev validation tools**:
-  - **Validate 100k** button in both odds windows (worktable + construction). Runs a large-N baseline, compares vs. UI, writes a detailed table to the log, and copies results to the clipboard with a toast.
-- **Quality Log – Columns menu**:
-  - Show/hide any column; two new raw columns **Item ID** and **Stuff ID** (default hidden).
-- **Quality Log – Search niceties**:
-  - **Inline clear (×)** button when the box is non-empty.
-  - **Ctrl/Cmd+F** focuses the search box.
-- **Quality Log – Copy helpers (context menu)**:
-  - Right-click a row → **Copy row (friendly)**, **Copy row (raw)**, **Copy Item defName**, **Copy Stuff defName(s)**.
-- **Quality Log – Row count**:
-  - Bottom-left **“X of Y shown”** indicator.
-- **Quality Log – Footer reset**:
-  - **Reset widths** button that calls the same reset as Mod Settings.
-- **Floating window polish**:
-  - Smaller top margin and a larger draggable strip.
+- **Quality Log (table & log views)**
+  - Searchable, filterable history of quality roll outcomes.
+  - **Pop out / Dock** toggle (only one visible at a time).
+  - **Floating window polish**: smaller top margin and a larger draggable strip.
+  - **Resizable table UI**: sortable columns, drag splitters with persisted layout, **Columns menu** to show/hide columns (with hidden-by-default **Item ID** and **Stuff ID** raw columns), zebra striping/hover highlights, dynamic last column fill.
+  - **Responsive header/footer (no overlap)**: buttons auto-size; search field shrinks first; low-priority actions flow into a **“⋯ More”** overflow when space is tight. (Scoped only to the Quality Log, both docked and floating.)
+  - **Search & filters**:
+    - Inline clear (×), **Ctrl/Cmd+F** to focus.
+    - **Quality** and **Skill** dropdowns.
+    - **Reset filters** button clears Search/Quality/Skill and persists the cleared state.
+    - **Materials-aware search**: matches **Stuff** and per-ingredient **materials** for multi-mat items, by **raw defNames** and **friendly labels**.
+    - **Persistent filters**: Search/Quality/Skill are remembered between sessions (docked or floating).
+  - **Copy helpers (row context menu)**: Copy row (friendly/raw), Item defName, Stuff defName(s).
+  - **Row count status**: “**X of Y shown**”.
+  - **Time columns**: in-game **Time** and **RL** (real-life play time since entry; ignores pause; updates while unpaused).
+  - **CSV export** with **PlayTime** column + **Open folder** button; export folder auto-prunes by count/size (configurable).
+  - **Duplicate suppression**: one entry per thing even if multiple `SetQuality` calls land.
+- **Live Quality Odds – Work tables & Construction**
+  - Work tables: select recipe + pawn for full **Awful→Legendary** odds.
+  - **Construction**: gizmo on frames and blueprints; pick constructor pawn for build quality odds.
+  - **Accurate skill resolver**: `recipe.workSkill` when present; otherwise Construction (buildings), Artistic (CompArt/sculptures), Crafting (general).
+- **Optional Dev Cheat (threshold-based, safe)**
+  - “Always roll at least the highest tier whose probability ≥ threshold.”
+  - Respects Legendary requirements; never biases the odds UI.
+- **Notifications (optional silencing)**
+  - Mod Settings toggles: **Silence Masterwork**, **Silence Legendary**.
+  - Suppresses both bottom-left toasts and right-side Letters for the specific crafted/built thing; robust for minified items and same-tick events.
+- **Diagnostics & Dev QoL**
+  - **Enable debug logs** (Dev Mode) for rich `[QI]` traces (flags, tier shifts, baseline vs. shifted distributions, context, suppression traces).
+  - **Validate 100k** buttons in both odds windows: run large-N baseline, compare vs UI, copy report to clipboard, toast completion.
+- **Settings**
+  - Toggle logging & live chances widgets; enable cheat + **Min Cheat Chance** slider; **Estimation samples** slider.
+  - **Quality Log UI**: font (Tiny/Small/Medium), row height scale, **Reset column widths**, **Open quality log**, **Reset ALL settings**.
+  - **Retention**: prune by age and/or entry count.
+  - **Exports**: cap by file count and/or MB.
 
 ### Changed
-- **Quality Log buttons are now adaptive**:
-  - Button widths are measured from labels at runtime; overlap is prevented via responsive layout and overflow.
-  - Preference is given to keep **Settings** and **Export CSV** visible in the footer when possible.
-- **Cheat isolation & safety**:
-  - Cheat evaluation samples a **true baseline** (cheat force-disabled, inspirations stripped, side-effects suppressed), then applies a **single-hop safe bump** if the chosen tier meets your threshold.
-  - Legendary rules still apply (requires Inspired Creativity or Production Specialist).
-  - `CompArt` is initialized when needed before bumping to avoid null art data.
-- **Deterministic, faster odds**:
-  - Stable seeding and **smarter caching** keyed by pawn, recipe/**builtDef**, boost mask, and the **cheat flag** for consistently snappy UI.
-- **Skill resolution** is unified:
-  - Uses `recipe.workSkill` when present; otherwise: **Construction** (buildings), **Artistic** (CompArt/sculptures), else **Crafting**. Applied consistently in odds and logging.
-- **Materials/worker tracking**:
-  - Improved capture during `MakeRecipeProducts/PostProcessProduct` and construction completion, including **minified** items and furniture.
-- **CSV & table**:
-  - Header includes `PlayTime`; export path has **Open folder** and auto-prunes by count/size (settings).
+- **Cheat isolation & safety**
+  - Cheat evaluation uses a true **baseline** (cheat force-disabled, inspirations stripped, side-effects suppressed), then applies a **single-hop** bump only when the target tier meets the threshold; Legendary rules still apply.
+  - Ensures `CompArt` is initialized before bumping to prevent null art data.
+- **Deterministic, faster odds**
+  - Stable seeding and caching keyed by pawn, recipe/**builtDef**, boost mask, and cheat flag.
+- **Skill resolution & materials/worker tracking**
+  - Unified skill inference and improved capture during `MakeRecipeProducts/PostProcessProduct` and construction completion (handles minified furniture).
+- **CSV & table**
+  - CSV includes `PlayTime`; export UI includes **Open folder** and auto-pruning configuration.
 
 ### Fixed
-- **UI overlap** in the Quality Log header/footer when shrinking the window or using larger fonts — controls now adapt or overflow to **“⋯ More”**.
-- **Notification silencing** now correctly targets both Messages and Letters via patched overloads. Debug traces identify what was blocked.
-- **Search clear button** now reliably clears the text even when the text field had focus.
-- **Crash with dev cheat enabled** in rare re-entrancy/recursion paths:
-  - Guarded with an internal **re-entrancy shield**, an **_inCheatEval** recursion gate, and **inspiration side-effect suppression** during sampling/cheat evaluation.
-- **Duplicate log entries**:
-  - Tightened duplicate suppression window to avoid spurious repeats when multiple `SetQuality` calls land quickly.
-- Additional null/edge guards around parent things, minified inner things, and delayed art initialization.
+- **UI overlap prevention** in the Quality Log header/footer on small windows or large UI scales via responsive sizing and **“⋯ More”** overflow.
+- **Search clear** consistently clears text even while the field has focus.
+- **Robustness with dev cheat enabled** in rare re-entrancy/recursion paths:
+  - Re-entrancy shield, `_inCheatEval` gate, and inspiration side-effect suppression during sampling/evaluation.
+- **Duplicate log entries** further reduced via tighter suppression window.
+- Additional null/edge guards around parent things, minified inners, and delayed art initialization.
 
 ### Performance
-- Odds sampling remains **deterministic** and cached; construction odds share the same fast path.
-- Log “Real-life Play Time” remains lightweight (accumulator advances **only while unpaused**; rows render a simple `(now − stamp)` diff).
-- Weak references avoid retaining built things longer than needed; periodic cleanup trims old dedupe entries.
+- Odds sampling remains deterministic and cached; construction shares the same fast path.
+- RL play-time tracking is lightweight (accumulator only while unpaused; UI renders a simple diff).
+- Weak references + periodic cleanup avoid retaining built things and stale dedupe entries.
 
 ### Developer Notes
-- **Debug logs** require **both** RimWorld **Dev Mode** and the mod’s **Enable debug logs** setting.
-- Diagnostic traces include:
-  - Boost flags (Inspired/ProdSpec), computed tier boost, and mask.
-  - Raw baseline vs. final (boost-shifted) distributions.
-  - Context (pawn, skill, recipe/builtDef).
-  - **Suppressed MESSAGE/LETTER** lines when notification silencing is active.
-- Validation output (100k) provides per-tier comparisons and a max absolute delta summary, copied to the clipboard for easy sharing.
+- **Debug logs** require **both** RimWorld **Dev Mode** and **Enable debug logs** in Mod Settings.
+- Validation output (100k) provides per-tier comparisons and a max absolute delta summary; copied to clipboard for easy sharing.
 
-### Migration Notes
-- If your saved column layout predates the newer columns/UI options, use **Reset column widths** (footer or Mod Settings) once.
-- Assets (`Languages/...`, textures) are not embedded in the DLL—keep them in your mod folder tree.
-- No data migration is required for existing saves; cheat/odds logic changes are internal and backward-compatible.
-
----
-
-## [1.0.0] – Initial release (summary)
-- Quality Log with CSV export.
-- Live Quality Odds gizmo.
-- Optional dev cheat (≥ threshold) that respects Legendary rules.
-- Construction path support and duplicate log suppression.
 
 ---
 
