@@ -3,7 +3,7 @@
 All notable changes to **Quality Insights** will be documented in this file.
 This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conventions and semantic versioning.
 
-## [1.0.0] – Initial release
+## [1.0.0] – Initial release – 2025-08-22
 
 ### Added
 - **Quality Log (table & log views)**
