@@ -63,7 +63,7 @@ namespace QualityInsights.UI
         private const float HeaderH   = 32f;
         private const float FooterH   = 34f;
         private const float RowH      = 28f;
-        private const float ColHeaderH= 28f;
+        // private const float ColHeaderH= 28f;
         private const float Pad       = 8f;
 
         // fixed widths so buttons don’t jump around as labels change
@@ -91,7 +91,9 @@ namespace QualityInsights.UI
         // default fractions include an extra "RL" column after "Time"
         internal static List<float> DefaultColFractions() =>
             // new() { 0.10f, 0.10f, 0.16f, 0.12f, 0.06f, 0.12f, 0.20f, 0.10f, 0.04f };
-            new() { 0.08f, 0.08f, 0.14f, 0.12f, 0.06f, 0.08f, 0.18f, 0.18f, 0.08f };
+            // new() { 0.08f, 0.08f, 0.14f, 0.12f, 0.06f, 0.08f, 0.18f, 0.18f, 0.08f }; // 8 columns
+            new() { 0.07f, 0.07f, 0.12f, 0.10f, 0.06f, 0.08f, 0.16f, 0.05f, 0.16f, 0.05f, 0.08f };
+
         public static void InvalidateColumnLayout() { s_layoutGen++; }
 
         // Fractions that produced the current _colPx cache.
@@ -102,24 +104,43 @@ namespace QualityInsights.UI
         private static string s_lastExportPath = string.Empty;
 
         // Stable column IDs so sort & persistence don't break when hidden
-        private enum Col { Time, RL, Pawn, Skill, Lvl, Quality, Item, Stuff, Tags }
+        private enum Col { Time, RL, Pawn, Skill, Lvl, Quality, Item, ItemRaw, Stuff, StuffRaw, Tags }
+
         private static readonly (Col id, string header, string key)[] AllCols =
         {
-            (Col.Time,    "Time",    "Time"),
-            (Col.RL,      "RL",      "RL"),
-            (Col.Pawn,    "Pawn",    "Pawn"),
-            (Col.Skill,   "Skill",   "Skill"),
-            (Col.Lvl,     "Lvl",     "Lvl"),
-            (Col.Quality, "Quality", "Quality"),
-            (Col.Item,    "Item",    "Item"),
-            (Col.Stuff,   "Stuff",   "Stuff"),
-            (Col.Tags,    "Tags",    "Tags"),
+            (Col.Time,    "Time",     "Time"),
+            (Col.RL,      "RL",       "RL"),
+            (Col.Pawn,    "Pawn",     "Pawn"),
+            (Col.Skill,   "Skill",    "Skill"),
+            (Col.Lvl,     "Lvl",      "Lvl"),
+            (Col.Quality, "Quality",  "Quality"),
+            (Col.Item,    "Item",     "Item"),
+            (Col.ItemRaw, "Item ID",  "ItemRaw"),
+            (Col.Stuff,   "Stuff",    "Stuff"),
+            (Col.StuffRaw,"Stuff ID", "StuffRaw"),
+            (Col.Tags,    "Tags",     "Tags"),
         };
+
 
         // Helpers
         private static string HeaderFor(Col c) => AllCols.First(t => t.id == c).header;
         private static string KeyFor(Col c)    => AllCols.First(t => t.id == c).key;
         private static int IndexOf(Col c)      => Array.FindIndex(AllCols, t => t.id == c);
+
+        private static string FriendlyThingLabel(string defNameOrNull)
+        {
+            if (string.IsNullOrEmpty(defNameOrNull)) return string.Empty;
+            var def = DefDatabase<ThingDef>.GetNamedSilentFail(defNameOrNull);
+            return def?.LabelCap ?? defNameOrNull;
+        }
+
+        private static string FriendlyDefLabel(string defNameOrNull)
+        {
+            if (string.IsNullOrEmpty(defNameOrNull)) return string.Empty;
+            var def = DefDatabase<ThingDef>.GetNamedSilentFail(defNameOrNull);
+            return def?.LabelCap ?? defNameOrNull;
+        }
+
 
         // Compute current visible list (never empty)
         private static List<Col> VisibleCols()
@@ -440,7 +461,7 @@ namespace QualityInsights.UI
             }
         }
 
-        private static void DrawMatsListOneLine(Rect r, List<string> matDefNames)
+        private static void DrawMatsListOneLine(Rect r, List<string> matDefNames, bool friendly = true)
         {
             if (matDefNames == null || matDefNames.Count == 0)
             {
@@ -471,7 +492,7 @@ namespace QualityInsights.UI
             }
 
             var textRect = new Rect(x + 2f, r.y, r.xMax - (x + 2f), r.height);
-            string label = string.Join(", ", matDefNames);
+            string label = string.Join(", ", matDefNames.Select(n => friendly ? FriendlyDefLabel(n) : n));
             DrawCellOneLine(textRect, label);
             TooltipHandler.TipRegion(r, label);
         }
@@ -669,10 +690,19 @@ namespace QualityInsights.UI
                         case Col.Skill:   DrawCellOneLine(cell, e.skillDef ?? "Unknown"); break;
                         case Col.Lvl:     DrawCellRightOneLine(cell, e.skillLevelAtFinish.ToString()); break;
                         case Col.Quality: DrawQualityOneLine(cell, e.quality); break;
-                        case Col.Item:    DrawThingWithIconOneLine(cell, e.thingDef); break;
+                        case Col.Item:
+                            DrawThingWithIconOneLine(cell, e.thingDef, friendly: true);
+                            break;
+                        case Col.ItemRaw:
+                            DrawThingWithIconOneLine(cell, e.thingDef, friendly: false);
+                            break;
                         case Col.Stuff:
-                            if (e.HasMats) DrawMatsListOneLine(cell, e.mats);
-                            else           DrawDefWithIconOneLine(cell, e.stuffDef);
+                            if (e.HasMats) DrawMatsListOneLine(cell, e.mats, friendly: true);
+                            else           DrawDefWithIconOneLine(cell, e.stuffDef, friendly: true);
+                            break;
+                        case Col.StuffRaw:
+                            if (e.HasMats) DrawMatsListOneLine(cell, e.mats, friendly: false);
+                            else           DrawDefWithIconOneLine(cell, e.stuffDef, friendly: false);
                             break;
                         case Col.Tags:
                             string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
@@ -695,16 +725,29 @@ namespace QualityInsights.UI
         {
             IOrderedEnumerable<QualityLogEntry> ordered = s_sortCol switch
             {
-                Col.Time    => list.OrderBy(e => e.gameTicks), // asc = older first
-                Col.RL      => list.OrderBy(e => e.HasPlayStamp ? 0 : 1).ThenBy(e => e.playSecondsAtLog),
-                Col.Pawn    => list.OrderBy(e => e.pawnName),
-                Col.Skill   => list.OrderBy(e => e.skillDef),
-                Col.Lvl     => list.OrderBy(e => e.skillLevelAtFinish),
-                Col.Quality => list.OrderBy(e => e.quality),
-                Col.Item    => list.OrderBy(e => e.thingDef),
-                Col.Stuff   => list.OrderBy(e => e.stuffDef),
-                Col.Tags    => list.OrderBy(e => (e.inspiredCreativity ? 1 : 0) + (e.productionSpecialist ? 2 : 0)),
-                _           => list.OrderBy(e => e.gameTicks),
+                Col.Time     => list.OrderBy(e => e.gameTicks),
+                Col.RL       => list.OrderBy(e => e.HasPlayStamp ? 0 : 1).ThenBy(e => e.playSecondsAtLog),
+                Col.Pawn     => list.OrderBy(e => e.pawnName),
+                Col.Skill    => list.OrderBy(e => e.skillDef),
+                Col.Lvl      => list.OrderBy(e => e.skillLevelAtFinish),
+                Col.Quality  => list.OrderBy(e => e.quality),
+
+                // Friendly label sorts
+                Col.Item     => list.OrderBy(e => FriendlyThingLabel(e.thingDef)),
+                Col.Stuff    => list.OrderBy(e =>
+                    e.HasMats
+                        ? string.Join("+", e.mats?.Select(FriendlyDefLabel) ?? Enumerable.Empty<string>())
+                        : FriendlyDefLabel(e.stuffDef)),
+
+                // Raw defs
+                Col.ItemRaw  => list.OrderBy(e => e.thingDef),
+                Col.StuffRaw => list.OrderBy(e =>
+                    e.HasMats
+                        ? string.Join("+", e.mats ?? new List<string>())
+                        : (e.stuffDef ?? string.Empty)),
+
+                Col.Tags     => list.OrderBy(e => (e.inspiredCreativity ? 1 : 0) + (e.productionSpecialist ? 2 : 0)),
+                _            => list.OrderBy(e => e.gameTicks),
             };
             return (s_sortAsc ? ordered : ordered.Reverse()).ToList();
         }
@@ -763,7 +806,7 @@ namespace QualityInsights.UI
             GUI.color = old;
         }
 
-        private static void DrawThingWithIconOneLine(Rect r, string thingDefName)
+        private static void DrawThingWithIconOneLine(Rect r, string thingDefName, bool friendly = true)
         {
             r = r.ContractedBy(2f, 2f);
             var left  = r.LeftPartPixels(r.height);
@@ -778,15 +821,17 @@ namespace QualityInsights.UI
                 GUI.color = old;
             }
 
-            DrawCellOneLine(right, thingDefName ?? string.Empty);
+            string label = friendly ? (def?.LabelCap ?? thingDefName ?? string.Empty) : (thingDefName ?? string.Empty);
+            DrawCellOneLine(right, label);
+
             if (!string.IsNullOrEmpty(thingDefName))
-                TooltipHandler.TipRegion(r, thingDefName);
+                TooltipHandler.TipRegion(r, friendly ? $"{label} ({thingDefName})" : thingDefName);
         }
 
-        private static void DrawDefWithIconOneLine(Rect r, string defNameOrNull)
+        private static void DrawDefWithIconOneLine(Rect r, string defNameOrNull, bool friendly = true)
         {
-            string name = defNameOrNull ?? string.Empty;
-            if (string.IsNullOrEmpty(name))
+            string raw = defNameOrNull ?? string.Empty;
+            if (string.IsNullOrEmpty(raw))
             {
                 DrawCellOneLine(r, string.Empty);
                 return;
@@ -796,7 +841,7 @@ namespace QualityInsights.UI
             var left  = r.LeftPartPixels(r.height);
             var right = new Rect(r.x + left.width + 4f, r.y, r.width - left.width - 4f, r.height);
 
-            var def = DefDatabase<ThingDef>.GetNamedSilentFail(name);
+            var def = DefDatabase<ThingDef>.GetNamedSilentFail(raw);
             if (def?.uiIcon != null)
             {
                 var old = GUI.color;
@@ -805,8 +850,9 @@ namespace QualityInsights.UI
                 GUI.color = old;
             }
 
-            DrawCellOneLine(right, name);
-            TooltipHandler.TipRegion(r, name);
+            string label = friendly ? (def?.LabelCap ?? raw) : raw;
+            DrawCellOneLine(right, label);
+            TooltipHandler.TipRegion(r, friendly ? $"{label} ({raw})" : raw);
         }
 
         private static void DrawPawnWithIconOneLine(Rect r, string pawnNameOrNull)
