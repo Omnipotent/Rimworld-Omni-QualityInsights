@@ -26,9 +26,9 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Inline clear (×)** button inside the search box.
   * **Ctrl/Cmd+F** focuses the search box.
   * **Quality** and **Skill** dropdown filters.
-  * **Reset filters** button (next to filters) — clears **Search**, **Quality**, and **Skill** in one click and persists the cleared state.
-  * **Materials-aware search** — search matches **Stuff** *and* per-ingredient **materials** (for multi-mat items) using **raw defNames** *and* **friendly labels**.
-  * **Persistent filters** — your **search text**, **Quality**, and **Skill** filters are **remembered** and restored when you reopen the log (docked or floating).
+  * **Reset filters** button (next to filters) - clears **Search**, **Quality**, and **Skill** in one click and persists the cleared state.
+  * **Materials-aware search** - search matches **Stuff** *and* per-ingredient **materials** (for multi-mat items) using **raw defNames** *and* **friendly labels**.
+  * **Persistent filters** - your **search text**, **Quality**, and **Skill** filters are **remembered** and restored when you reopen the log (docked or floating).
 * **Copy helpers (row context menu)**
   Right-click any row:
   * **Copy row (friendly)**
@@ -38,8 +38,8 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Row count status**
   Bottom-left indicator: **“X of Y shown”** (updates live with search/filters).
 * **Time columns (2):**
-  * **Time** — in-game “time ago” (e.g. `2d 4h`).
-  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
+  * **Time** - in-game “time ago” (e.g. `2d 4h`).
+  * **RL** - **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
     *Ignores time spent paused; updates live while unpaused.*
 * Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials** (distinct list with icons where available; otherwise shows Stuff).
 * **Duplicate suppression** (only one entry per thing even if multiple `SetQuality` calls land).
@@ -111,7 +111,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Quality Log UI**
   * Font: Tiny / Small / Medium.
   * Row height scale.
-  * **Reset column widths** (reverts to sensible defaults) — also available in the table footer.
+  * **Reset column widths** (reverts to sensible defaults) - also available in the table footer.
   * **Open quality log** (quick access).
   * **Reset ALL settings** (one-click restore of every QI setting).
 * **Retention**
@@ -165,16 +165,16 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 
 ## Changelog (recent highlights)
 
-* **New**: **Responsive header/footer** — buttons auto-size; search shrinks first; low-priority actions flow into a **“⋯ More”** overflow (no overlap on small windows/large fonts; Quality Log only).
-* **New**: **Reset filters** button — one click clears Search/Quality/Skill and persists the cleared state.
-* **New**: **Materials-aware search** — search matches Stuff *and* per-ingredient materials (multi-mat) by raw defName and friendly label.
-* **New**: **Notification silencing** for **Masterwork/Legendary** — suppresses both the bottom-left toast *and* the right-side **Letter** (blue mail). Handles minified items and same-tick events.
-* **New**: **Persistent filters** — search, Quality, and Skill are saved and restored when the log opens.
+* **New**: **Responsive header/footer** - buttons auto-size; search shrinks first; low-priority actions flow into a **“⋯ More”** overflow (no overlap on small windows/large fonts; Quality Log only).
+* **New**: **Reset filters** button - one click clears Search/Quality/Skill and persists the cleared state.
+* **New**: **Materials-aware search** - search matches Stuff *and* per-ingredient materials (multi-mat) by raw defName and friendly label.
+* **New**: **Notification silencing** for **Masterwork/Legendary** - suppresses both the bottom-left toast *and* the right-side **Letter** (blue mail). Handles minified items and same-tick events.
+* **New**: **Persistent filters** - search, Quality, and Skill are saved and restored when the log opens.
 * **New**: **Construction quality odds** gizmo on **frames & blueprints** (choose a pawn, see full Awful→Legendary odds).
 * **New**: **Columns menu** to show/hide columns; added hidden-by-default **Item ID** and **Stuff ID** columns.
 * **New**: **Inline clear (×)** in the search box + **Ctrl/Cmd+F** to focus search.
 * **New**: **Row context menu** (right-click) to copy friendly/raw rows and defNames.
-* **New**: **Row count** status — “X of Y shown”.
+* **New**: **Row count** status - “X of Y shown”.
 * **New**: **Reset column widths** button in the table footer.
 * **Improved**: Floating window drag area and top margin.
 * **Improved**: Deterministic sampling, caching, and cheat isolation.
