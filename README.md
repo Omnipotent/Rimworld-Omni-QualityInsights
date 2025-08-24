@@ -1,6 +1,8 @@
 # Quality Insights
 
-Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorld 1.4 / 1.5 / 1.6.
+Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorld 1.6 *(and should also work in 1.4 and 1.5)*.
+
+[Mod Preview Image]](About\Preview.png)
 
 ## Features
 
