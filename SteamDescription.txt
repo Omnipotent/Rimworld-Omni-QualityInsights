@@ -1,0 +1,73 @@
+[b]Have you ever wished you could see the exact quality odds before you hit “Make x10”?[/b]
+[b]Want a clean, searchable log of every Awful→Legendary roll your colony makes?[/b]
+[b]Prefer a single-player-friendly, optional “always craft at least this tier” cheat with a slider you control?[/b]
+
+Meet [b]Quality Insights[/b] — a lightweight toolkit that adds a slick Quality Log, live odds for crafting [i]and[/i] construction, and an optional threshold-based dev cheat. It’s fast, friendly, and plays nicely with your mod list.
+
+[quote]
+“Finally, I can pick the right pawn for the job.”
+“Construction odds at a glance? Yes please.”
+“Optional cheat is perfect for chill runs. Toggle on/off, set the % you want.”
+[/quote]
+
+[b]✅ Highlights[/b]
+[list]
+[*][b]Live Quality Odds[/b] — Pick a pawn + recipe (or a constructor on blueprints/frames) and see full [i]Awful → Legendary[/i] odds. Includes boosts: [i]Inspired Creativity (+2)[/i] and [i]Production Specialist (+1)[/i]. Caps handled correctly.
+[*][b]Quality Log (Table & Log views)[/b] — Searchable, filterable history of every roll. Sort columns, resize with drag splitters, and choose which columns to show. Responsive header/footer with “⋯ More” so nothing overlaps.
+[*][b]Materials-aware search[/b] — Matches Stuff [i]and[/i] per-ingredient materials for multi-mat recipes [i]and[/i] extra construction ingredients (like Components). Shows icons when available.
+[*][b]Construction ingredient tracking[/b] — Log entries for built structures include all extra ingredients actually consumed.
+[*][b]Right-click row actions[/b] — Copy friendly/raw rows, copy defNames, or [b]Delete row[/b] (hold [i]Shift[/i] to skip confirmation).
+[*][b]Time columns[/b] — In-game time ago [i]and[/i] real-life play time since the entry (no per-row timers; uses a single accumulator).
+[*][b]CSV export[/b] — Includes PlayTime + Materials, with an “Open folder” button and auto-prune by count/size.
+[/list]
+
+[b]🎯 Optional (Safe) Dev Cheat[/b]
+Turn on a threshold slider that says: [i]“Always roll at least the highest tier whose probability ≥ X%.”[/i]
+[list]
+[*]Never biases the odds UI (cheat is force-disabled during sampling).
+[*]Respects Legendary rules: you still need legal access (inspiration/role) to reach it.
+[*]Implemented as a safe single-hop bump via vanilla quality set. Reentrancy-guarded.
+[/list]
+
+[b]🧠 Accuracy & Performance[/b]
+[list]
+[*]Odds sample the real vanilla roll via Harmony; results are cached per (pawn, recipe/builtDef, boosts, cheat flag) for snappy UI.
+[*]RL time is cheap (single accumulator while unpaused). No ticking per-row timers.
+[*]Dev-only “Validate 100k” compares large-N samples vs the UI and copies details to your clipboard.
+[/list]
+
+[b]🛠 Controls (Quick Ref)[/b]
+[list]
+[*][b]Ctrl/Cmd+F[/b] focuses search; click the [b]×[/b] in the box to clear.
+[*]Right-click a row for copy tools or [b]Delete[/b] (hold [i]Shift[/i] to skip confirm).
+[*]Pop out/Dock toggle switches between floating and tabbed views.
+[*]Use the [b]Columns[/b] menu to show/hide columns; [b]Reset widths[/b] anytime.
+[/list]
+
+[b]🧩 Compatibility[/b]
+[list]
+[*]RimWorld 1.6 (also expected to work on 1.4 / 1.5).
+[*]Plays well with most quality-altering mods because we sample the [i]actual[/i] roll.
+[*]Construction quality attribution handles minified furniture correctly.
+[/list]
+
+[b]🔔 Optional Notification Silencing[/b]
+Tired of spam? You can silence Masterwork/Legendary toasts and Letters for the exact crafted/built item.
+
+[b]🧪 Diagnostics (Dev Mode)[/b]
+Turn on QI debug logs for rich `[QI]` traces. “Validate 100k” copies its report to your clipboard.
+
+[b]📦 Requirements[/b]
+[list]
+[*][url=steamcommunity.com/sharedfiles/filedetails/?id=2009463077]Harmony[/url]
+[/list]
+
+[b]📣 Feedback & Bugs[/b]
+Questions, balance thoughts, odd edge cases? Leave a comment or open an issue—your reports help polish QI for everyone.
+
+[b]💙 Credits[/b]
+Made by [b]Omni[/b]. Thanks to the RimWorld modding community for the docs, tools, and inspiration.
+
+---
+
+[b]If you found this helpful, a ⭐/👍 goes a long way—enjoy the cleaner, smarter quality game![/b]
