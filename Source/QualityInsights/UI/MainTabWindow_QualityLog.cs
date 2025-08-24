@@ -256,7 +256,7 @@ namespace QualityInsights.UI
 
                     // Delete a Row from quality log
                     new FloatMenuOption(
-                        "Delete row (hold Shift to skip)",
+                        "Delete row (Shift=No confirm)",
                         () =>
                         {
                             if (ShiftHeldNow())
@@ -268,7 +268,7 @@ namespace QualityInsights.UI
                             {
                                 // Normal confirmation
                                 var dlg = Dialog_MessageBox.CreateConfirmation(
-                                    "Delete this log entry?\nThis cannot be undone.",
+                                    "Delete this log entry?\n\nThis cannot be undone.\n\nNote: Hold shift to skip this confirmation.",
                                     () => DeleteEntry(e),
                                     destructive: true);
                                 Find.WindowStack.Add(dlg);
@@ -1007,14 +1007,21 @@ namespace QualityInsights.UI
         {
             list = list.OrderByDescending(e => e.gameTicks).ToList();
 
-            var viewRect = new Rect(0, 0, outRect.width - 16f, list.Count * (rowH + 2f) + 6f);
+            float step = rowH + 2f; // row plus spacing
+            var viewRect = new Rect(0, 0, outRect.width - 16f, list.Count * step + 6f);
             Widgets.BeginScrollView(outRect, ref scroll, viewRect);
 
-            float y = 0f;
-            int idx = 0;
-            foreach (var e in list)
+            // Compute visible range
+            int first = Mathf.Max(0, Mathf.FloorToInt(scroll.y / step));
+            int visCount = Mathf.CeilToInt(outRect.height / step) + 2; // small buffer
+            int last = Mathf.Min(list.Count - 1, first + visCount);
+
+            float y = first * step;
+            for (int idx = first; idx <= last; idx++)
             {
+                var e = list[idx];
                 var r = new Rect(0, y, viewRect.width, rowH);
+
                 MaybeContextCopy(r, e);
                 if ((idx & 1) == 1) DrawZebra(r);
                 if (Mouse.IsOver(r)) Widgets.DrawHighlight(r);
@@ -1022,13 +1029,13 @@ namespace QualityInsights.UI
                 string pawn  = e.pawnName ?? "Unknown";
                 string skill = e.skillDef ?? "Unknown";
                 string stuff = string.IsNullOrEmpty(e.stuffDef) ? string.Empty : $"[{e.stuffDef}]";
-                string tags  = (e.inspiredCreativity ? " | Inspired" : string.Empty) +
-                               (e.productionSpecialist ? " | ProdSpec" : string.Empty);
+                string tags  = (e.inspiredCreativity ? " | Inspired" : string.Empty)
+                            + (e.productionSpecialist ? " | ProdSpec" : string.Empty);
+                string rl    = e.HasPlayStamp ? $" (RL: {FormatPlayTime(nowPlay - e.playSecondsAtLog)})" : string.Empty;
 
-                string rl = e.HasPlayStamp ? $" (RL: {FormatPlayTime(nowPlay - e.playSecondsAtLog)})" : string.Empty;
                 DrawCellOneLine(r, $"{e.TimeAgoString}{rl} | {pawn} ({skill} {e.skillLevelAtFinish}) ➜ {e.quality} | {e.thingDef}{stuff}{tags}");
-                y += rowH + 2f;
-                idx++;
+
+                y += step;
             }
 
             Widgets.EndScrollView();
@@ -1171,16 +1178,22 @@ namespace QualityInsights.UI
             var viewRect = new Rect(0, 0, rowsOut.width - 16f, list.Count * rowH + 8f);
             Widgets.BeginScrollView(rowsOut, ref scroll, viewRect);
 
+            // Compute visible range
+            int first = Mathf.Max(0, Mathf.FloorToInt(scroll.y / rowH));
+            int visCount = Mathf.CeilToInt(rowsOut.height / rowH) + 2; // small buffer
+            int last = Mathf.Min(list.Count - 1, first + visCount);
+
             float usedPx = 0f; for (int k = 0; k < _colPx.Length; k++) usedPx += _colPx[k];
             float lastPxRows = Mathf.Max(ColMinPx, viewRect.width - usedPx);
 
-            float y = 0f;
-            int idx = 0;
-            foreach (var e in list)
+            float y = first * rowH;
+            for (int idx = first; idx <= last; idx++)
             {
+                var e = list[idx];
                 float x = 0f;
                 var row = new Rect(0, y, viewRect.width, rowH);
-                MaybeContextCopy(row, e); // NEW
+
+                MaybeContextCopy(row, e);
                 if ((idx & 1) == 1) DrawZebra(row);
                 if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
@@ -1197,12 +1210,8 @@ namespace QualityInsights.UI
                         case Col.Skill:   DrawCellOneLine(cell, e.skillDef ?? "Unknown"); break;
                         case Col.Lvl:     DrawCellRightOneLine(cell, e.skillLevelAtFinish.ToString()); break;
                         case Col.Quality: DrawQualityOneLine(cell, e.quality); break;
-                        case Col.Item:
-                            DrawThingWithIconOneLine(cell, e.thingDef, friendly: true);
-                            break;
-                        case Col.ItemRaw:
-                            DrawThingWithIconOneLine(cell, e.thingDef, friendly: false);
-                            break;
+                        case Col.Item:    DrawThingWithIconOneLine(cell, e.thingDef, friendly: true); break;
+                        case Col.ItemRaw: DrawThingWithIconOneLine(cell, e.thingDef, friendly: false); break;
                         case Col.Stuff:
                             if (e.HasMats) DrawMatsListOneLine(cell, e.mats, friendly: true);
                             else           DrawDefWithIconOneLine(cell, e.stuffDef, friendly: true);
@@ -1212,8 +1221,8 @@ namespace QualityInsights.UI
                             else           DrawDefWithIconOneLine(cell, e.stuffDef, friendly: false);
                             break;
                         case Col.Tags:
-                            string tags = (e.inspiredCreativity ? "Inspired " : string.Empty) +
-                                        (e.productionSpecialist ? "ProdSpec" : string.Empty);
+                            string tags = (e.inspiredCreativity ? "Inspired " : string.Empty)
+                                        + (e.productionSpecialist ? "ProdSpec" : string.Empty);
                             DrawCellOneLine(cell, tags);
                             break;
                     }
@@ -1222,7 +1231,6 @@ namespace QualityInsights.UI
                 }
 
                 y += rowH;
-                idx++;
             }
 
             Widgets.EndScrollView();

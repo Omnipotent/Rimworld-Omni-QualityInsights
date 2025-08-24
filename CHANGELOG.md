@@ -11,7 +11,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 
 ---
 
-## [1.0.0] – Initial release – 2025-08-23
+## [1.0.0] – Initial release – 2025-08-24
 
 ### Added
 - **Quality Log (table & log views)**

@@ -7,9 +7,9 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 ### Quality Log (Table & Log Views)
 
 * Top-bar button opens a searchable, filterable log of all quality roll outcomes.
-* **Pop out / Dock toggle**
+* **Pop out / Dock toggle**  
   One button switches between a docked main-tab window and a floating window. Opening one closes the other, so only one is visible.
-* **Floating window polish**
+* **Floating window polish**  
   Smaller top margin and a larger draggable area (grab along the top margin or header strip).
 * **Resizable table UI**
   * **Sortable columns** (click header).
@@ -35,11 +35,11 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Copy Item defName**
   * **Copy Stuff defName(s)**
   * **Delete row** — removes the entry from the log. **Hold Shift** when clicking to **skip the confirmation** dialog.
-* **Row count status**
+* **Row count status**  
   Bottom-left indicator: **“X of Y shown”** (updates live with search/filters).
 * **Time columns (2):**
-  * **Time** - in-game “time ago” (e.g. `2d 4h`).
-  * **RL** - **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
+  * **Time** — in-game “time ago” (e.g. `2d 4h`).
+  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).  
     *Ignores time spent paused; updates live while unpaused.*
 * Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials**:
   * For crafting: distinct list with icons where available.
@@ -82,7 +82,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * Toggle **Silence Masterwork** and/or **Silence Legendary** in Mod Settings to suppress:
   * The **bottom-left toasts** (`Messages.Message`), and
   * The **right-side Letters** (blue mail icons) for the matching built/crafted item.
-* Works across overloads, matches the specific product (handles **minified** inner things), and is robust to same-tick multiple calls.
+* Works across overloads, matches the specific product (handles **minified** inner things), and is robust to same-tick multiple calls.  
   *(Dev Mode + QI debug logs will show what was suppressed and why.)*
 
 ### Diagnostics & Developer Quality-of-Life
@@ -101,7 +101,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Disable cheat**, **suppress inspiration side-effects**, and **strip inspiration** per roll to compute a true baseline.
   * Apply tier shifts once (+2 inspiration, +1 role) with a correct Legendary cap.
 * Cheat uses a separate baseline estimation (also with cheat off / insp suppressed) and **only bumps one tier** safely if the target tier meets your threshold.
-* **Real-life play time** is tracked by a lightweight component that accumulates seconds **only while the game is unpaused**. Each log entry stores a play-time snapshot; the UI shows *(currentAccum − snapshot)*.
+* **Real-life play time** is tracked by a lightweight component that accumulates seconds **only while the game is unpaused**. Each log entry stores a play-time snapshot; the UI shows *(currentAccum − snapshot)* — **no per-row timers**.
 
 ## Settings
 
@@ -115,7 +115,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Quality Log UI**
   * Font: Tiny / Small / Medium.
   * Row height scale.
-  * **Reset column widths** (reverts to sensible defaults) - also available in the table footer.
+  * **Reset column widths** (reverts to sensible defaults) — also available in the table footer.
   * **Open quality log** (quick access).
   * **Reset ALL settings** (one-click restore of every QI setting).
 * **Retention**
@@ -123,7 +123,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Exports**
   * Keep last **N** CSVs and/or cap the export folder by **MB**.
 
-> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.
+> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.  
 > If you use versioned load folders (e.g. `1.5/` or `1.6/` in `About/LoadFolders.xml`), ensure the updated XML is copied to the **active** folder (`<modroot>/<version>/Languages/...`).
 
 ## Controls quick reference
@@ -161,7 +161,7 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 * Legendary requires Inspired Creativity or the Production Specialist role; the cheat respects this.
 * Construction quality is attributed to the builder pawn reliably, including minified furniture.
 * **Ingredient tracking:** construction entries include extra ingredients; these flow into **search** and **CSV exports**.
-* Performance: sampled odds are cached; the log’s RL time is cheap (accumulator + UI diff). Column resizing persists and can be reset.
+* Performance: sampled odds are cached; the log’s RL time is cheap (single accumulator + per-row diff; **no per-row timers**). Column resizing persists and can be reset.
 
 ## Troubleshooting
 
@@ -182,7 +182,7 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 * **New**: **Columns menu** to show/hide columns; added hidden-by-default **Item ID** and **Stuff ID** columns.
 * **New**: **Inline clear (×)** in the search box + **Ctrl/Cmd+F** to focus search.
 * **New**: **Row context menu** (right-click) to copy friendly/raw rows and defNames.
-* **New**: **Row count** status - “X of Y shown”.
+* **New**: **Row count** status — “X of Y shown”.
 * **New**: **Reset column widths** button in the table footer.
 * **Improved**: Floating window drag area and top margin.
 * **Improved**: Deterministic sampling, caching, and cheat isolation.
