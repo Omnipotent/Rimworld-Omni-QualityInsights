@@ -83,6 +83,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 ### Developer Notes
 - **Debug logs** require **both** RimWorld **Dev Mode** and **Enable debug logs** in Mod Settings.
 - Validation output (100k) provides per-tier comparisons and a max absolute delta summary; copied to clipboard for easy sharing.
+- Confirmed to work on RimWorld 1.6. Should also work on 1.4 and 1.5, but is untested.
 
 ---
 

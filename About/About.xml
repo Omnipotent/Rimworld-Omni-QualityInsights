@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>QualityInsights</name>
+  <name>Quality Insights</name>
   <author>Omni</author>
   <packageId>omni.qualityinsights</packageId>
+
+  <!-- Displayed in RimWorld's Mod Manager; bump to 1.0.0 on release -->
+  <modVersion>1.0.0</modVersion>
+
+  <!-- In-game Mod List thumbnail (place a PNG here; 512–1024px recommended) -->
+  <previewImagePath>About/Preview.png</previewImagePath>
 
   <supportedVersions>
     <li>1.6</li>
@@ -11,32 +17,61 @@
   </supportedVersions>
 
   <description>
-    Quality log + live quality odds + optional dev cheat (≥ configurable threshold).
+Quality log + live quality odds + an optional, safe dev cheat.
 
-    • Quality Log (Table View)
-      – New resizable, sortable table with zebra striping and hover highlight.
-      – Drag splitters to resize columns; layout persists in Mod Settings.
-      – Dynamic last column auto-fills remaining space.
-      – Search box + dropdown filters (quality tier, skill).
-      – Materials/Stuff column shows icons + full tooltip; CSV export button.
-      – Duplicate suppression prevents multiple entries for the same item.
+• Quality Log (Table &amp; Log)
+  - Docked tab or pop-out window; single-click toggle.
+  - Resizable/sortable table with zebra stripes and hover highlights.
+  - Columns menu (show/hide), raw ID columns, and "Reset widths".
+  - Responsive header/footer: no overlap; overflow goes to "⋯ More".
+  - Search + Quality/Skill filters; inline clear (×); Ctrl/Cmd+F focus.
+  - Materials-aware search: matches Stuff and per-ingredient materials
+    (multi-mat crafts and extra construction ingredients) by defName
+    and friendly label.
+  - Persistent filters saved/restored between sessions.
+  - Row actions (right-click): Copy row (friendly/raw), copy defNames,
+    Delete row (hold Shift to skip confirm).
+  - Time columns: in-game "Time" and real-life "RL" since entry.
+    RL uses a single accumulator (no per-row timers).
+  - CSV export (+ Open folder) with PlayTime; auto-prune by count/size.
 
-    • Live Quality Odds Gizmo
-      – Appears on work tables; pick a pawn and recipe to see full tier odds (Awful → Legendary).
-      – Uses the games actual roll function for accurate, mod-friendly probabilities.
-      – Correctly resolves skill (Construction/Artistic/Crafting or recipe.workSkill).
-      – Handles inspirations and roles (Inspired Creativity, Production Specialist).
+• Live Quality Odds – Work Tables &amp; Construction
+  - Pick a pawn + recipe (or a constructor for frames/blueprints) and see
+    full Awful → Legendary odds.
+  - Accurate skill resolve (recipe.workSkill else Construction/Artistic/Crafting).
+  - Boost-aware: Inspired Creativity (+2 tiers), Production Specialist (+1).
+    Legendary is correctly capped with overflow to Masterwork.
+  - Deterministic, cached sampling of the real vanilla roll (cheat disabled
+    during sampling; inspiration side-effects suppressed).
+  - Dev-only "Validate 100k" to compare simulated vs UI odds.
 
-    • Construction Path Support
-      – Binds frame → completed thing; attributes builder pawn and Construction skill.
-      – Handles minified furniture.
+• Construction Path Support
+  - Attributes completed quality to the correct builder (handles minified furniture).
+  - Tracks additional construction ingredients (e.g. Components) in the log,
+    searchable and included in CSV exports.
 
-    • Optional Dev Cheat
-      – Forces final quality ≥ the lowest tier with chance ≥ threshold.
-      – Legendary still requires a legal bump (Inspiration/Production Specialist).
+• Optional Dev Cheat (threshold-based)
+  - "Always roll at least the highest tier with probability ≥ threshold."
+  - Safe single-hop bump via SetQuality; Legendary still requires legal access.
+  - Never biases the odds UI (cheat is force-disabled during sampling).
 
-    • UX and Performance
-      – “Settings” button in the log window footer jumps straight to mod settings.
-      – Smooth scrolling and lightweight rendering; recalculations only when inputs change.
+• Notification Silencing
+  - Optionally suppress Masterwork/Legendary toast + Letter for the exact item.
+
+• Diagnostics
+  - Dev-mode debug logs with detailed [QI] traces.
+  - Validate-100k results copied to clipboard for easy sharing.
+
+Compatibility &amp; Notes
+  - Confirmed to work on RimWorld 1.6. Should also work on 1.4 / 1.5 but is untested.
+  - Odds remain accurate with most quality-altering mods because the actual
+    roll is sampled.
+  - Performance: odds are cached; RL time is cheap (single accumulator);
+    table layout persists and can be reset.
+
+Localization
+  - Strings: Languages/English/Keyed/QualityInsights.xml
+  - If using versioned load folders (About/LoadFolders.xml), ensure the
+    updated language file is present in the active version folder.
   </description>
 </ModMetaData>
