@@ -6,6 +6,19 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   <img src="About/Preview.png" width="900" alt="Quality Insights – preview">
 </p>
 
+<p align="center">
+  <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3555322875">
+    <img alt="Subscribe on Steam Workshop" src="https://img.shields.io/badge/Steam-Subscribe-1b2838?logo=steam&logoColor=white">
+  </a>
+  <a href="[https://github.com/Omnipotent/Rimworld-Omni-QualityInsights](https://github.com/Omnipotent/Rimworld-Omni-QualityInsights)">
+    <img alt="Source: GitHub" src="https://img.shields.io/badge/Source-GitHub-181717?logo=github">
+  </a>
+  <!-- Optional: point at releases when you publish -->
+  <!-- <a href="https://github.com/Omnipotent/Rimworld-OmniQualityLog/releases">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/Omnipotent/Rimworld-OmniQualityLog?display_name=release">
+  </a> -->
+</p>
+
 ## Features
 
 ### Quality Log (Table & Log Views)
