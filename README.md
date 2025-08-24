@@ -2,16 +2,18 @@
 
 Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorld 1.6 *(and should also work in 1.4 and 1.5)*.
 
-[Mod Preview Image](About/Preview.png)
+<p align="center">
+  <img src="About/Preview.png" width="900" alt="Quality Insights – preview">
+</p>
 
 ## Features
 
 ### Quality Log (Table & Log Views)
 
 * Top-bar button opens a searchable, filterable log of all quality roll outcomes.
-* **Pop out / Dock toggle**  
+* **Pop out / Dock toggle**
   One button switches between a docked main-tab window and a floating window. Opening one closes the other, so only one is visible.
-* **Floating window polish**  
+* **Floating window polish**
   Smaller top margin and a larger draggable area (grab along the top margin or header strip).
 * **Resizable table UI**
   * **Sortable columns** (click header).
@@ -37,11 +39,11 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Copy Item defName**
   * **Copy Stuff defName(s)**
   * **Delete row** — removes the entry from the log. **Hold Shift** when clicking to **skip the confirmation** dialog.
-* **Row count status**  
+* **Row count status**
   Bottom-left indicator: **“X of Y shown”** (updates live with search/filters).
 * **Time columns (2):**
   * **Time** — in-game “time ago” (e.g. `2d 4h`).
-  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).  
+  * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
     *Ignores time spent paused; updates live while unpaused.*
 * Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials**:
   * For crafting: distinct list with icons where available.
@@ -84,7 +86,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * Toggle **Silence Masterwork** and/or **Silence Legendary** in Mod Settings to suppress:
   * The **bottom-left toasts** (`Messages.Message`), and
   * The **right-side Letters** (blue mail icons) for the matching built/crafted item.
-* Works across overloads, matches the specific product (handles **minified** inner things), and is robust to same-tick multiple calls.  
+* Works across overloads, matches the specific product (handles **minified** inner things), and is robust to same-tick multiple calls.
   *(Dev Mode + QI debug logs will show what was suppressed and why.)*
 
 ### Diagnostics & Developer Quality-of-Life
@@ -125,7 +127,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 * **Exports**
   * Keep last **N** CSVs and/or cap the export folder by **MB**.
 
-> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.  
+> **Localization**: strings live in `Languages/English/Keyed/QualityInsights.xml`.
 > If you use versioned load folders (e.g. `1.5/` or `1.6/` in `About/LoadFolders.xml`), ensure the updated XML is copied to the **active** folder (`<modroot>/<version>/Languages/...`).
 
 ## Controls quick reference
