@@ -3,7 +3,15 @@
 All notable changes to **Quality Insights** will be documented in this file.
 This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conventions and semantic versioning.
 
-## [1.0.0] – Initial release – 2025-08-22
+## [Unreleased]
+
+### Added
+
+- **TBD**
+
+---
+
+## [1.0.0] – Initial release – 2025-08-23
 
 ### Added
 - **Quality Log (table & log views)**
@@ -16,7 +24,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
     - Inline clear (×), **Ctrl/Cmd+F** to focus.
     - **Quality** and **Skill** dropdowns.
     - **Reset filters** button clears Search/Quality/Skill and persists the cleared state.
-    - **Materials-aware search**: matches **Stuff** and per-ingredient **materials** for multi-mat items, by **raw defNames** and **friendly labels**.
+    - **Materials-aware search**: matches **Stuff** and per-ingredient **materials** for multi-mat items by **raw defNames** and **friendly labels**.
     - **Persistent filters**: Search/Quality/Skill are remembered between sessions (docked or floating).
   - **Copy helpers (row context menu)**: Copy row (friendly/raw), Item defName, Stuff defName(s).
   - **Row count status**: “**X of Y shown**”.
@@ -41,6 +49,9 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - **Quality Log UI**: font (Tiny/Small/Medium), row height scale, **Reset column widths**, **Open quality log**, **Reset ALL settings**.
   - **Retention**: prune by age and/or entry count.
   - **Exports**: cap by file count and/or MB.
+- **Delete row** action in the Quality Log (right-click context menu).
+  - **Hold Shift** while clicking to **skip the confirmation** dialog.
+- **Ingredient tracking for construction**: log entries for constructed structures now capture **additional ingredients** consumed by the build (beyond Stuff). These appear in the **Materials** field, participate in **search**, and are included in **CSV exports**.
 
 ### Changed
 - **Cheat isolation & safety**
@@ -52,6 +63,8 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - Unified skill inference and improved capture during `MakeRecipeProducts/PostProcessProduct` and construction completion (handles minified furniture).
 - **CSV & table**
   - CSV includes `PlayTime`; export UI includes **Open folder** and auto-pruning configuration.
+- **Menu option priority**: use `MenuOptionPriority.High` for the destructive **Delete row** option (replaces the older `DangerOption` value for broader compatibility).
+- **Shift detection** for delete: uses IMGUI’s `Event.current` modifiers (no dependency on `UnityEngine.Input`), improving compatibility with player builds and compile targets.
 
 ### Fixed
 - **UI overlap prevention** in the Quality Log header/footer on small windows or large UI scales via responsive sizing and **“⋯ More”** overflow.
@@ -60,6 +73,7 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
   - Re-entrancy shield, `_inCheatEval` gate, and inspiration side-effect suppression during sampling/evaluation.
 - **Duplicate log entries** further reduced via tighter suppression window.
 - Additional null/edge guards around parent things, minified inners, and delayed art initialization.
+- Minor null-safety and UI consistency around the new row-deletion flow.
 
 ### Performance
 - Odds sampling remains deterministic and cached; construction shares the same fast path.
@@ -70,7 +84,6 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 - **Debug logs** require **both** RimWorld **Dev Mode** and **Enable debug logs** in Mod Settings.
 - Validation output (100k) provides per-tier comparisons and a max absolute delta summary; copied to clipboard for easy sharing.
 
-
 ---
 
-*Tip: when cutting a release, replace **[Unreleased]** with a version/date (e.g., `## [1.2.0] – 2025-08-21`) and start a fresh **[Unreleased]** section above it.*
+*Tip: when cutting a release, replace **[Unreleased]** with a version/date (e.g., `## [1.2.0] – 2025-08-25`) and start a fresh **[Unreleased]** section above it.*

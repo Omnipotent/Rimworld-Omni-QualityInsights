@@ -185,6 +185,29 @@ namespace QualityInsights.UI
             return clicked;
         }
 
+        private static bool ShiftHeldNow()
+        {
+            var e = Event.current;
+            return e != null && (e.shift || (e.modifiers & EventModifiers.Shift) != 0);
+        }
+
+        private static void DeleteEntry(QualityLogEntry e)
+        {
+            try
+            {
+                var comp = QualityLogComponent.Ensure(Current.Game);
+                if (comp?.entries == null) return;
+
+                if (comp.entries.Remove(e))
+                {
+                    // Optional UX niceties:
+                    SoundDefOf.Click.PlayOneShotOnCamera();
+                    Messages.Message("Row deleted.", MessageTypeDefOf.TaskCompletion, false);
+                }
+            }
+            catch { /* never break UI */ }
+        }
+
         // NEW: right-click copy menu
         private void MaybeContextCopy(Rect rowRect, QualityLogEntry e)
         {
@@ -230,6 +253,28 @@ namespace QualityInsights.UI
                     new FloatMenuOption("Copy row (raw)",      () => Copy(BuildRaw())),
                     new FloatMenuOption("Copy Item defName",   () => Copy(e.thingDef ?? string.Empty)),
                     new FloatMenuOption("Copy Stuff defName(s)", () => Copy(stuffOnly)),
+
+                    // Delete a Row from quality log
+                    new FloatMenuOption(
+                        "Delete row (hold Shift to skip)",
+                        () =>
+                        {
+                            if (ShiftHeldNow())
+                            {
+                                // Quick-delete (no confirmation)
+                                DeleteEntry(e);
+                            }
+                            else
+                            {
+                                // Normal confirmation
+                                var dlg = Dialog_MessageBox.CreateConfirmation(
+                                    "Delete this log entry?\nThis cannot be undone.",
+                                    () => DeleteEntry(e),
+                                    destructive: true);
+                                Find.WindowStack.Add(dlg);
+                            }
+                        },
+                        MenuOptionPriority.High)
                 };
 
                 Find.WindowStack.Add(new FloatMenu(opts));

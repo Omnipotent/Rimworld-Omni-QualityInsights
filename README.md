@@ -27,23 +27,26 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
   * **Ctrl/Cmd+F** focuses the search box.
   * **Quality** and **Skill** dropdown filters.
   * **Reset filters** button (next to filters) — clears **Search**, **Quality**, and **Skill** in one click and persists the cleared state.
-  * **Materials-aware search** — search matches **Stuff** *and* per-ingredient **materials** (for multi-mat items) using **raw defNames** *and* **friendly labels**.
+  * **Materials-aware search** — search matches **Stuff** *and* per-ingredient **materials** for multi-mat items and **extra construction ingredients** (e.g., Components), using **raw defNames** *and* **friendly labels**.
   * **Persistent filters** — your **search text**, **Quality**, and **Skill** filters are **remembered** and restored when you reopen the log (docked or floating).
-* **Copy helpers (row context menu)**
-  Right-click any row:
+* **Row actions (right-click)**
   * **Copy row (friendly)**
   * **Copy row (raw)**
   * **Copy Item defName**
   * **Copy Stuff defName(s)**
+  * **Delete row** — removes the entry from the log. **Hold Shift** when clicking to **skip the confirmation** dialog.
 * **Row count status**
   Bottom-left indicator: **“X of Y shown”** (updates live with search/filters).
 * **Time columns (2):**
   * **Time** — in-game “time ago” (e.g. `2d 4h`).
   * **RL** — **real-life play time elapsed** since the log entry (e.g. `1h 12m`).
     *Ignores time spent paused; updates live while unpaused.*
-* Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials** (distinct list with icons where available; otherwise shows Stuff).
+* Records: item, maker pawn, skill used, final quality, inspiration/role flags, and **materials**:
+  * For crafting: distinct list with icons where available.
+  * For construction: **includes additional ingredients** consumed by the build, not just Stuff.
 * **Duplicate suppression** (only one entry per thing even if multiple `SetQuality` calls land).
 * **CSV export** (+ **Open folder** button) with a **PlayTime** column matching the RL display.
+  * CSV **Materials** column includes multi-mat recipes **and** extra construction ingredients.
 * Export folder **auto-prunes** by count/size (configurable).
 
 ### Live Quality Odds – Work Tables **and Construction**
@@ -64,6 +67,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 ### Construction Path Support
 
 * Binds frame → completed building and attributes quality to the correct **builder pawn** (handles minified furniture).
+* **Ingredient tracking for construction** — logs **all additional ingredients** actually consumed by the build (e.g., Components), not just Stuff; these show in the **Materials** column, are **searchable**, and are **included in exports**.
 
 ### Optional Dev Cheat (threshold-based, safe)
 
@@ -125,7 +129,7 @@ Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorl
 ## Controls quick reference
 
 * **Click** column headers to sort; **drag** splitters to resize.
-* **Right-click** a row for copy tools.
+* **Right-click** a row for copy tools **or to delete**. **Hold Shift** while clicking **Delete row** to skip the confirmation prompt.
 * **Ctrl/Cmd+F** focuses the search box; click the **×** inside the box to clear.
 * **Reset filters** clears **Search/Quality/Skill**.
 * **Pop out / Dock** toggles the window mode.
@@ -148,6 +152,7 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 * Click the **Quality Log** button to open the table (sort, resize, export). Use **Pop out/Dock** to switch window mode.
 * Select a **work table**, click the **Quality odds** gizmo, pick a recipe + pawn to view tier odds.
 * Select a **frame** (or **blueprint**) to use the **construction odds** gizmo; pick a constructor pawn to view tier odds.
+* Right-click **rows** to copy data **or delete entries** (hold **Shift** to delete without confirmation).
 * Configure options in **Mod Settings** (notifications, cheat threshold/samples, diagnostics, UI preferences, retention/exports).
 
 ## Compatibility & Notes
@@ -155,6 +160,7 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 * Odds remain accurate with most quality-altering mods because we sample the actual roll.
 * Legendary requires Inspired Creativity or the Production Specialist role; the cheat respects this.
 * Construction quality is attributed to the builder pawn reliably, including minified furniture.
+* **Ingredient tracking:** construction entries include extra ingredients; these flow into **search** and **CSV exports**.
 * Performance: sampled odds are cached; the log’s RL time is cheap (accumulator + UI diff). Column resizing persists and can be reset.
 
 ## Troubleshooting
@@ -165,6 +171,8 @@ Copy the mod folder to `RimWorld/Mods/QualityInsights` (ensure `Assemblies/Quali
 
 ## Changelog (recent highlights)
 
+* **New**: **Delete row** from the Quality Log (right-click). **Hold Shift** to delete **without** confirmation.
+* **New**: **Construction ingredient tracking** — logs extra ingredients (e.g., Components) used by builds; searchable and included in exports.
 * **New**: **Responsive header/footer** — buttons auto-size; search shrinks first; low-priority actions flow into a **“⋯ More”** overflow (no overlap on small windows/large fonts; Quality Log only).
 * **New**: **Reset filters** button — one click clears Search/Quality/Skill and persists the cleared state.
 * **New**: **Materials-aware search** — search matches Stuff *and* per-ingredient materials (multi-mat) by raw defName and friendly label.

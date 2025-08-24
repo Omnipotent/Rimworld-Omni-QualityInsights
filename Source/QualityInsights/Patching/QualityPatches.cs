@@ -27,6 +27,8 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static object? _savedInspObj;
         [ThreadStatic] private static FieldInfo? _curInspField;
         [ThreadStatic] private static PropertyInfo? _curInspProp;
+        [ThreadStatic] private static bool _inConstructionRun;
+        [ThreadStatic] private static List<string>? _constructionMats;
 
         // Cache worker per product (safe to hold weakly)
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
@@ -44,8 +46,14 @@ namespace QualityInsights.Patching
         private static string P(Pawn? p) => p != null ? p.LabelShortCap : "null";
         private static string S(SkillDef? s) => s != null ? (s.skillLabel ?? s.label ?? s.defName) : "null";
 
-        private struct BuildCtx { public Map map; public IntVec3 cell; public ThingDef builtDef; public Pawn worker; }
-        private static readonly Dictionary<int, BuildCtx> _buildCtx = new();
+        private struct BuildCtx
+        {
+            public Map map;
+            public IntVec3 cell;
+            public ThingDef builtDef;
+            public Pawn worker;
+            public List<string> mats; // NEW: Stuff + costList materials captured from the Frame
+        }        private static readonly Dictionary<int, BuildCtx> _buildCtx = new();
         private static readonly HashSet<int> _bumping = new();
         // Toast suppression (same-tick) for masterwork/legendary messages
         private static int _suppressTick = -1;
@@ -373,6 +381,10 @@ namespace QualityInsights.Patching
 
             if (thing == null) return null;
 
+            // Safety net: while CompleteConstruction() is running, use thread-static capture
+            if (_inConstructionRun && _constructionMats != null && _constructionMats.Count > 0)
+                return new List<string>(_constructionMats);
+
             // Cache (by id, for both normal and minified cases)
             if (_matsById.TryGetValue(thing.thingIDNumber, out var mats))
                 return new List<string>(mats);
@@ -492,12 +504,34 @@ namespace QualityInsights.Patching
                 var built = __instance?.def?.entityDefToBuild as ThingDef;
                 if (built == null || worker == null) return;
 
+                // Gather materials BEFORE the frame consumes them
+                var mats = new List<string>();
+                try
+                {
+                    if (__instance.Stuff != null)
+                        mats.Add(__instance.Stuff.defName);
+
+                    // Frame.resourceContainer is a private ThingOwner<Thing>
+                    var rcField = AccessTools.Field(typeof(Frame), "resourceContainer");
+                    var rc = rcField?.GetValue(__instance) as ThingOwner<Thing>;
+                    if (rc != null)
+                        foreach (var t in rc)
+                            if (t?.def != null) mats.Add(t.def.defName);
+                }
+                catch { /* best-effort */ }
+                mats = mats.Distinct(StringComparer.Ordinal).ToList();
+
+                // Hand off mats for the duration of CompleteConstruction (covers SetQuality timing)
+                _inConstructionRun = true;
+                _constructionMats  = mats;
+
                 _buildCtx[__instance.thingIDNumber] = new BuildCtx
                 {
                     map = __instance.Map,
                     cell = __instance.Position,
                     builtDef = built,
-                    worker = worker
+                    worker = worker,
+                    mats = mats
                 };
 
                 if (DebugLogs)
@@ -534,8 +568,24 @@ namespace QualityInsights.Patching
                 try { _productToWorker.Remove(target); } catch { }
                 _productToWorker.Add(target, ctx.worker);
 
-                if (DebugLogs)
-                    Log.Message($"[QI] Construction bound: {P(ctx.worker)} -> {target.LabelCap}");
+                // NEW: bind mats captured from the frame to the product id(s)
+                if (ctx.mats != null && ctx.mats.Count > 0)
+                {
+                    _matsById[target.thingIDNumber] = new List<string>(ctx.mats);
+                    if (builtThing is MinifiedThing mm && mm.InnerThing != null)
+                        _matsById[mm.InnerThing.thingIDNumber] = new List<string>(ctx.mats);
+
+                    if (DebugLogs)
+                    {
+                        string idText = (builtThing is MinifiedThing mm2 && mm2.InnerThing != null)
+                            ? $"{target.thingIDNumber}/{mm2.InnerThing.thingIDNumber}"
+                            : target.thingIDNumber.ToString();
+
+                        Log.Message($"[QI] Construction mats bound: id={idText} mats=[{string.Join(",", ctx.mats)}]");
+                    }
+                }
+                _inConstructionRun = false;
+                _constructionMats  = null;
             }
             catch { }
         }
@@ -828,6 +878,19 @@ namespace QualityInsights.Patching
                     try
                     {
                         var comp = QualityLogComponent.Ensure(Current.Game);
+
+                        // Ensure construction mats are available immediately during SetQuality
+                        if (_inConstructionRun && _constructionMats != null && _constructionMats.Count > 0)
+                        {
+                            try
+                            {
+                                _matsById[thing.thingIDNumber] = new List<string>(_constructionMats);
+                                if (thing is MinifiedThing mi && mi.InnerThing != null)
+                                    _matsById[mi.InnerThing.thingIDNumber] = new List<string>(_constructionMats);
+                            }
+                            catch { /* non-fatal */ }
+                        }
+
                         var matsForLog = GetMaterialsFor(thing);
 
                         if (DebugLogs)
