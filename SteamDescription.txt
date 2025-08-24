@@ -2,7 +2,7 @@
 [b]Want a clean, searchable log of every Awful→Legendary roll your colony makes?[/b]
 [b]Prefer a single-player-friendly, optional “always craft at least this tier” cheat with a slider you control?[/b]
 
-Meet [b]Quality Insights[/b] — a lightweight toolkit that adds a slick Quality Log, live odds for crafting [i]and[/i] construction, and an optional threshold-based dev cheat. It’s fast, friendly, and plays nicely with your mod list.
+Meet [b]Quality Insights[/b] - a lightweight toolkit that adds a slick Quality Log, live odds for crafting [i]and[/i] construction, and an optional threshold-based dev cheat. It’s fast, friendly, and plays nicely with your mod list.
 
 [quote]
 “Finally, I can pick the right pawn for the job.”
@@ -12,13 +12,13 @@ Meet [b]Quality Insights[/b] — a lightweight toolkit that adds a slick Quality
 
 [b]✅ Highlights[/b]
 [list]
-[*][b]Live Quality Odds[/b] — Pick a pawn + recipe (or a constructor on blueprints/frames) and see full [i]Awful → Legendary[/i] odds. Includes boosts: [i]Inspired Creativity (+2)[/i] and [i]Production Specialist (+1)[/i]. Caps handled correctly.
-[*][b]Quality Log (Table & Log views)[/b] — Searchable, filterable history of every roll. Sort columns, resize with drag splitters, and choose which columns to show. Responsive header/footer with “⋯ More” so nothing overlaps.
-[*][b]Materials-aware search[/b] — Matches Stuff [i]and[/i] per-ingredient materials for multi-mat recipes [i]and[/i] extra construction ingredients (like Components). Shows icons when available.
-[*][b]Construction ingredient tracking[/b] — Log entries for built structures include all extra ingredients actually consumed.
-[*][b]Right-click row actions[/b] — Copy friendly/raw rows, copy defNames, or [b]Delete row[/b] (hold [i]Shift[/i] to skip confirmation).
-[*][b]Time columns[/b] — In-game time ago [i]and[/i] real-life play time since the entry (no per-row timers; uses a single accumulator).
-[*][b]CSV export[/b] — Includes PlayTime + Materials, with an “Open folder” button and auto-prune by count/size.
+[*][b]Live Quality Odds[/b] - Pick a pawn + recipe (or a constructor on blueprints/frames) and see full [i]Awful → Legendary[/i] odds. Includes boosts: [i]Inspired Creativity (+2)[/i] and [i]Production Specialist (+1)[/i]. Caps handled correctly.
+[*][b]Quality Log (Table & Log views)[/b] - Searchable, filterable history of every roll. Sort columns, resize with drag splitters, and choose which columns to show. Responsive header/footer with “⋯ More” so nothing overlaps.
+[*][b]Materials-aware search[/b] - Matches Stuff [i]and[/i] per-ingredient materials for multi-mat recipes [i]and[/i] extra construction ingredients (like Components). Shows icons when available.
+[*][b]Construction ingredient tracking[/b] - Log entries for built structures include all extra ingredients actually consumed.
+[*][b]Right-click row actions[/b] - Copy friendly/raw rows, copy defNames, or [b]Delete row[/b] (hold [i]Shift[/i] to skip confirmation).
+[*][b]Time columns[/b] - In-game time ago [i]and[/i] real-life play time since the entry (no per-row timers; uses a single accumulator).
+[*][b]CSV export[/b] - Includes PlayTime + Materials, with an “Open folder” button and auto-prune by count/size.
 [/list]
 
 [b]🎯 Optional (Safe) Dev Cheat[/b]
@@ -63,11 +63,14 @@ Turn on QI debug logs for rich `[QI]` traces. “Validate 100k” copies its rep
 [/list]
 
 [b]📣 Feedback & Bugs[/b]
-Questions, balance thoughts, odd edge cases? Leave a comment or open an issue—your reports help polish QI for everyone.
+Questions, balance thoughts, odd edge cases? Leave a comment or open an issue - your reports help polish QI for everyone.
 
 [b]💙 Credits[/b]
 Made by [b]Omni[/b]. Thanks to the RimWorld modding community for the docs, tools, and inspiration.
 
 ---
 
-[b]If you found this helpful, a ⭐/👍 goes a long way—enjoy the cleaner, smarter quality game![/b]
+[b]If you found this helpful, a ⭐/👍 goes a long way - enjoy the cleaner, smarter quality game![/b]
+
+[b]Source code:[/b] [url=https://github.com/Omnipotent/Rimworld-Omni-QualityInsights]GitHub - Omni Quality Insights[/url]
+[b]Issue tracker:[/b] [url=https://github.com/Omnipotent/Rimworld-Omni-QualityInsights/issues]Report a bug / request a feature[/url]
