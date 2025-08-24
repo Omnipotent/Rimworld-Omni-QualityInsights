@@ -3,14 +3,16 @@
 Quality log + live quality odds + optional dev cheat (≥ threshold) for RimWorld 1.6 *(and should also work in 1.4 and 1.5)*.
 
 <p align="center">
-  <img src="About/Preview.png" width="900" alt="Quality Insights – preview">
+  <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3555322875">
+    <img src="About/Preview.png" width="768" alt="Quality Insights – Steam Workshop">
+  </a>
 </p>
 
 <p align="center">
   <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3555322875">
     <img alt="Subscribe on Steam Workshop" src="https://img.shields.io/badge/Steam-Subscribe-1b2838?logo=steam&logoColor=white">
   </a>
-  <a href="[https://github.com/Omnipotent/Rimworld-Omni-QualityInsights](https://github.com/Omnipotent/Rimworld-Omni-QualityInsights)">
+  <a href="https://github.com/Omnipotent/Rimworld-Omni-QualityInsights">
     <img alt="Source: GitHub" src="https://img.shields.io/badge/Source-GitHub-181717?logo=github">
   </a>
   <!-- Optional: point at releases when you publish -->
