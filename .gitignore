@@ -80,3 +80,9 @@ desktop.ini
 .ReSharper*/
 *_Resharper.*/
 .idea/.idea.*
+
+
+# -----------------------------
+# Omni Project Related
+# -----------------------------
+Source/QualityInsights/steamupdateproject.bat

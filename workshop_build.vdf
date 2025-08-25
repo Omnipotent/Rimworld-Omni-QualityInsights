@@ -1,0 +1,8 @@
+"workshopitem"
+{
+  "appid"           "294100"
+  "publishedfileid" "3555322875"
+  "contentfolder"   "E:/SteamLibrary/steamapps/common/RimWorld/Mods/QualityInsights"
+  "previewfile"     "E:/SteamLibrary/steamapps/common/RimWorld/Mods/QualityInsights/About/Preview.png"
+  "changenote"      "1.0.1 — Fixed strip/equip false logs; improved worker binding; minor UI polish."
+}

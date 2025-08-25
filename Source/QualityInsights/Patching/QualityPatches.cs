@@ -29,6 +29,9 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static PropertyInfo? _curInspProp;
         [ThreadStatic] private static bool _inConstructionRun;
         [ThreadStatic] private static List<string>? _constructionMats;
+        // Add near other [ThreadStatic] fields
+        [ThreadStatic] private static int _rollDepth;
+        private static bool InVanillaRoll => _rollDepth > 0;
 
         // Cache worker per product (safe to hold weakly)
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
@@ -593,6 +596,9 @@ namespace QualityInsights.Patching
         // Cheat short-circuit before vanilla roll
         public static bool GenerateQuality_Prefix(Pawn pawn, SkillDef relevantSkill, ref QualityCategory __result)
         {
+            // START roll scope
+            _rollDepth++;
+
             _currentPawn = pawn;
             _currentSkill = relevantSkill;
             _hadInspirationAtRoll = pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
@@ -640,6 +646,10 @@ namespace QualityInsights.Patching
                 {
                     _forcedQuality = forced;      // <— see #3 (perf tweak)
                     __result = forced.Value;
+
+                    // IMPORTANT: we’re exiting the roll path here,
+                    // so close the scope before returning false.
+                    _rollDepth--;
                     return false; // skip vanilla
                 }
             }
@@ -669,6 +679,11 @@ namespace QualityInsights.Patching
             }
             _clearedInspThisRoll = false;
             _savedInspObj = null; _curInspField = null; _curInspProp = null;
+
+            // END roll scope
+            if (_rollDepth > 0) _rollDepth--;
+            _currentPawn  = null;
+            _currentSkill = null;
         }
 
         private static QualityCategory? TryComputeCheatOverride(Pawn pawn, SkillDef skill)
@@ -771,6 +786,7 @@ namespace QualityInsights.Patching
 
             try
             {
+                // 1) Get the thing first
                 var thing = __instance?.parent;
                 if (thing == null)
                 {
@@ -792,19 +808,51 @@ namespace QualityInsights.Patching
                     }
                 }
 
-                int id = thing.thingIDNumber;
+                // 2) Bound worker availability
+                Pawn boundWorker = null;
+                bool hasBoundWorker = _productToWorker.TryGetValue(thing, out boundWorker);
+                if (!hasBoundWorker && thing is MinifiedThing mx && mx.InnerThing != null)
+                    hasBoundWorker = _productToWorker.TryGetValue(mx.InnerThing, out boundWorker);
 
-                SkillDef skill = ResolveSkillForThing(thing, _currentSkill);
+                // 3) Creation-context gate (skip strip/spawn/retouch SetQuality calls)
+                bool validContext =
+                    InVanillaRoll           // real quality roll on the stack
+                    || _inConstructionRun   // construction pipeline
+                    || hasBoundWorker       // recipe product we bound in PostProcessProduct
+                    || (_currentWorkerFromRecipe != null); // still enumerating a recipe
 
-                Pawn worker = _currentPawn ?? _currentWorkerFromRecipe;
-                if (worker == null && _productToWorker.TryGetValue(thing, out var cached))
+                if (!validContext)
                 {
-                    worker = cached;
-                    if (DebugLogs) Log.Message($"[QI] Resolved worker via cache: {worker.LabelShortCap} for {thing.LabelCap}");
-                    try { _productToWorker.Remove(thing); } catch { }
+                    if (DebugLogs)
+                        Log.Message($"[QI] Ignoring SetQuality for '{thing?.LabelCap}' (no creation context; likely strip/spawn/retouch).");
+                    CleanupCaches(thing);
+                    goto ClearAndReturn;
                 }
 
-                // Ignore non-player / unknown workers (filters worldgen, traders, raids, etc.)
+                int id = thing.thingIDNumber;
+
+                // 4) Resolve skill (avoid stale _currentSkill unless we trust the context)
+                SkillDef skill = ResolveSkillForThing(
+                    thing,
+                    (InVanillaRoll || _inConstructionRun || _currentWorkerFromRecipe != null) ? _currentSkill : null
+                );
+
+                // 5) Prefer the bound worker, then fall back
+                Pawn worker = _currentPawn ?? _currentWorkerFromRecipe ?? boundWorker;
+                if (worker == null && _productToWorker.TryGetValue(thing, out var cached))
+                {
+                    worker = cached; // ultra fallback
+                }
+
+                // If we consumed a bound worker, clear the binding(s)
+                if (worker != null && hasBoundWorker)
+                {
+                    try { _productToWorker.Remove(thing); } catch { }
+                    if (thing is MinifiedThing m2 && m2.InnerThing != null)
+                        try { _productToWorker.Remove(m2.InnerThing); } catch { }
+                }
+
+                // 6) Filter non-player / unknown workers (worldgen, traders, raids, etc.)
                 if (worker == null || worker.Faction != Faction.OfPlayer)
                 {
                     CleanupCaches(thing);
@@ -813,12 +861,11 @@ namespace QualityInsights.Patching
 
                 // If the prefix already forced a quality for this roll, reuse it; otherwise compute once.
                 QualityCategory? forced = _forcedQuality;
-                if (QualityInsightsMod.Settings.enableCheat && forced == null && worker != null)
+                if (QualityInsightsMod.Settings.enableCheat && forced == null)
                     forced = TryComputeCheatOverride(worker, skill);
 
                 // Clear the thread-static so we never carry it past this item
                 _forcedQuality = null;
-
 
                 // Safe "bump" (single hop). If something re-enters, we bail early via _bumping + depth guard.
                 if (QualityInsightsMod.Settings.enableCheat && forced.HasValue && q < forced.Value)
@@ -830,7 +877,7 @@ namespace QualityInsights.Patching
                         _bumping.Add(id);
 
                         var art = thing.TryGetComp<CompArt>();
-                        if (art != null && !art.Active && worker != null)
+                        if (art != null && !art.Active)
                         {
                             try { art.InitializeArt(worker); } catch { /* never break */ }
                         }

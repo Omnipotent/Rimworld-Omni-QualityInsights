@@ -11,6 +11,20 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 
 ---
 
+## [1.0.1] – Fix For Stripped Items – 2025-08-24
+
+### Fixed
+
+- Fixed false-positive log entries when pawns **strip/equip** items or when items **spawn with preset quality** (e.g., from world pawns). These were previously recorded as new crafts/constructions.
+- Added strict **creation-context verification** around `SetQuality` (only log during a real vanilla roll, an active construction run, or a recipe product with a bound worker).
+- Prefer the **bound worker** (from `PostProcessProduct` / construction) to avoid misattributing quality to the wrong pawn; consume the binding once used.
+- Hardened **materials capture** for construction frames and recipe products, and improved cache cleanup to prevent cross-item leakage.
+- Scoped and cleared roll state to prevent stale inspiration/skill data from bleeding into unrelated items.
+- Minor debug-log polish. No gameplay changes; safe to update mid-save.
+
+
+---
+
 ## [1.0.0] – Initial release – 2025-08-24
 
 ### Added
