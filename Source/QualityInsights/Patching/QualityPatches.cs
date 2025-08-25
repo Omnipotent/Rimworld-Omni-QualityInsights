@@ -29,6 +29,9 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static PropertyInfo? _curInspProp;
         [ThreadStatic] private static bool _inConstructionRun;
         [ThreadStatic] private static List<string>? _constructionMats;
+        [ThreadStatic] private static int _suppressInspPawnId;   // pawn being sampled
+        [ThreadStatic] private static int _suppressInspDepth;    // simple reentrancy guard
+
         // Add near other [ThreadStatic] fields
         [ThreadStatic] private static int _rollDepth;
         private static bool InVanillaRoll => _rollDepth > 0;
@@ -49,6 +52,10 @@ namespace QualityInsights.Patching
 
         private static string P(Pawn? p) => p != null ? p.LabelShortCap : "null";
         private static string S(SkillDef? s) => s != null ? (s.skillLabel ?? s.label ?? s.defName) : "null";
+        // Prevent inspiration from being immediately re-granted (same/next tick)
+        private static readonly Dictionary<int, int> _blockInspUntilTick = new();
+        // Block only Inspired_Creativity from immediately re-granting (same tick)
+        private static readonly Dictionary<int, int> _blockCreativityUntilTick = new();
 
         private struct BuildCtx
         {
@@ -67,14 +74,44 @@ namespace QualityInsights.Patching
         [ThreadStatic] private static int _afterSetQDepth;
         [ThreadStatic] private static bool _inCheatEval;
 
+        private static string InspState(Pawn p)
+        {
+            try
+            {
+                var ih = p?.mindState?.inspirationHandler;
+                var cur = GetCurrentInspiration(ih);
+                return cur == null ? "<none>" : cur.def?.defName ?? "<unknown>";
+            }
+            catch { return "<err>"; }
+        }
+
         static QualityPatches()
         {
             var harmony = new Harmony("omni.qualityinsights");
 
             PatchAllOverloads(harmony, typeof(InspirationHandler), "EndInspiration",
                 new HarmonyMethod(typeof(QualityPatches), nameof(InspirationGuardPrefix)));
-            PatchAllOverloads(harmony, typeof(InspirationHandler), "TryStartInspiration",
-                new HarmonyMethod(typeof(QualityPatches), nameof(InspirationGuardPrefix)));
+            // Add a postfix logger:
+            foreach (var mi in typeof(InspirationHandler).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Where(m => m.Name == "EndInspiration"))
+            {
+                harmony.Patch(mi, postfix: new HarmonyMethod(typeof(QualityPatches), nameof(EndInspiration_Postfix)));
+            }
+            // NEW: clean, overload-safe wiring with result-aware postfixes
+            foreach (var mi in typeof(InspirationHandler)
+                    .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .Where(m => m.Name == "TryStartInspiration"))
+            {
+                var ps = mi.GetParameters();
+                bool hasDef = ps.Any(p => p.ParameterType == typeof(InspirationDef));
+
+                harmony.Patch(mi,
+                    prefix:  new HarmonyMethod(typeof(QualityPatches),
+                                hasDef ? nameof(TryStartInspiration_Prefix_WithDef)
+                                    : nameof(TryStartInspiration_Prefix_NoDef)),
+                    postfix: new HarmonyMethod(typeof(QualityPatches),
+                                hasDef ? nameof(TryStartInspiration_Postfix_WithDef)
+                                    : nameof(TryStartInspiration_Postfix_NoDef)));
+            }
 
             // Capture mats/worker at recipe time
             var make = AccessTools.Method(typeof(GenRecipe), "MakeRecipeProducts");
@@ -164,7 +201,7 @@ namespace QualityInsights.Patching
             {
                 harmony.Patch(
                     setQ,
-                    prefix:  new HarmonyMethod(typeof(QualityPatches), nameof(BeforeSetQuality)),
+                    prefix: new HarmonyMethod(typeof(QualityPatches), nameof(BeforeSetQuality)),
                     postfix: new HarmonyMethod(typeof(QualityPatches), nameof(AfterSetQuality))
                 );
             }
@@ -208,6 +245,114 @@ namespace QualityInsights.Patching
             Log.Message("[QualityInsights] Patches applied.");
         }
 
+        private static void TouchInspirationCooldown(InspirationHandler ih, int now)
+        {
+            // common names across versions
+            foreach (var name in new[] { "lastInspirationEndTick", "lastInspirationTick" })
+            {
+                var f = AccessTools.Field(typeof(InspirationHandler), name);
+                if (f != null && f.FieldType == typeof(int)) { f.SetValue(ih, now); return; }
+            }
+
+            // very defensive fallback
+            try
+            {
+                foreach (var f in typeof(InspirationHandler).GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    var n = f.Name.ToLowerInvariant();
+                    if (f.FieldType == typeof(int) && n.Contains("inspiration") && (n.Contains("end") || n.Contains("last")))
+                    { f.SetValue(ih, now); return; }
+                }
+            }
+            catch { }
+        }
+
+        public static void TryStartInspiration_Postfix(InspirationHandler __instance)
+        {
+            if (!Prefs.DevMode || !QualityInsightsMod.Settings.enableDebugLogs) return;
+
+            var p = PawnFromIH(__instance);
+            var cur = GetCurrentInspiration(__instance);
+            int now = Find.TickManager?.TicksGame ?? 0;
+            string def = cur?.def?.defName ?? "<none>";
+
+            Log.Message($"[QI] TryStartInspiration POST | pawn={P(p)} | cur={def} @tick {now}");
+        }
+
+        // Clears any current inspiration on the handler, regardless of how it's stored.
+        // Returns true if anything was actually cleared.
+        private static bool ClearAnyInspiration(InspirationHandler ih)
+        {
+            if (ih == null) return false;
+            bool cleared = false;
+
+            // Try canonical members first
+            try
+            {
+                var prop = AccessTools.Property(typeof(InspirationHandler), "CurInspiration");
+                if (prop != null && prop.CanWrite)
+                {
+                    prop.SetValue(ih, null, null);
+                    cleared = true;
+                }
+            } catch { }
+
+            if (!cleared)
+            {
+                try
+                {
+                    var field = AccessTools.Field(typeof(InspirationHandler), "curInspiration");
+                    if (field != null)
+                    {
+                        field.SetValue(ih, null);
+                        cleared = true;
+                    }
+                } catch { }
+            }
+
+            // Scan *all* instance props/fields as a last resort (handles renames / modded builds)
+            try
+            {
+                foreach (var p in typeof(InspirationHandler).GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (p.PropertyType == typeof(Inspiration) && p.CanWrite)
+                    {
+                        p.SetValue(ih, null, null);
+                        cleared = true;
+                    }
+                }
+            } catch { }
+
+            try
+            {
+                foreach (var f in typeof(InspirationHandler).GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (f.FieldType == typeof(Inspiration))
+                    {
+                        f.SetValue(ih, null);
+                        cleared = true;
+                    }
+                }
+            } catch { }
+
+            return cleared;
+        }
+
+        public static void EndInspiration_Postfix(InspirationHandler __instance)
+        {
+            if (!Prefs.DevMode || !QualityInsightsMod.Settings.enableDebugLogs) return;
+            if (_suppressInspirationSideEffects || _samplingNoInspiration) return;   // <-- add this
+            try
+            {
+                Pawn p = null;
+                try { p = AccessTools.Field(typeof(InspirationHandler), "pawn")?.GetValue(__instance) as Pawn; } catch { }
+                int now = Find.TickManager?.TicksGame ?? 0;
+                string cur = InspState(p);
+                Log.Message($"[QI] EndInspiration POST | pawn={(p != null ? p.LabelShortCap : "<null>")} | now={cur} @tick {now}");
+            }
+            catch { }
+        }
+
         // Works across overloads; __0=label, __1=text (string or TaggedString), __2=LetterDef, __3=LookTargets
         public static bool LetterStack_ReceiveLetter_Prefix(object __0, object __1, LetterDef __2, LookTargets __3)
         {
@@ -236,7 +381,7 @@ namespace QualityInsights.Patching
                 if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
                 {
                     string label = __0?.ToString() ?? "<null>";
-                    string def   = __2?.defName ?? "<null>";
+                    string def = __2?.defName ?? "<null>";
                     Log.Message($"[QI] Suppressed LETTER '{label}' (def={def}) for thing id={t.thingIDNumber} at tick={now}");
                 }
 
@@ -293,11 +438,93 @@ namespace QualityInsights.Patching
             return false;
         }
 
-         public static bool InspirationGuardPrefix()
-         {
-             // When we're sampling, skip vanilla inspiration start/end entirely
-             return !_suppressInspirationSideEffects;  // false => Harmony blocks original
-         }
+        // Prefix for TryStartInspiration(InspirationDef def, ...) — sampling aware
+        public static bool TryStartInspiration_Prefix_WithDef(InspirationHandler __instance, InspirationDef def)
+        {
+            try
+            {
+                if (_samplingNoInspiration)
+                {
+                    var p = PawnFromIH(__instance);
+                    if (p != null && p == _currentPawn)
+                        return false; // don't start inspirations during sampling
+                }
+
+                if (SuppressForIH(__instance)) return false;
+
+                if (def == InspirationDefOf.Inspired_Creativity)
+                {
+                    var p = PawnFromIH(__instance);
+                    if (p != null)
+                    {
+                        int now = Find.TickManager?.TicksGame ?? 0;
+                        if (_blockCreativityUntilTick.TryGetValue(p.thingIDNumber, out var until) && now <= until)
+                            return false;
+                    }
+                }
+            }
+            catch { }
+            return true;
+        }
+
+        // Prefix for TryStartInspiration(..., bool forced = false) — sampling aware
+        public static bool TryStartInspiration_Prefix_NoDef(InspirationHandler __instance, [HarmonyArgument("forced")] bool forced = false)
+        {
+            try
+            {
+                if (forced) return true;
+
+                if (_samplingNoInspiration)
+                {
+                    var p = PawnFromIH(__instance);
+                    if (p != null && p == _currentPawn)
+                        return false; // no starts during sampling for the sampled pawn
+                }
+
+                if (SuppressForIH(__instance)) return false;
+
+                var pwn = PawnFromIH(__instance);
+                if (pwn != null)
+                {
+                    int now = Find.TickManager?.TicksGame ?? 0;
+                    if (_blockInspUntilTick.TryGetValue(pwn.thingIDNumber, out var until) && now <= until)
+                        return false;
+                }
+            }
+            catch { }
+            return true;
+        }
+
+        // Guard EndInspiration for the sampled pawn only
+        public static bool InspirationGuardPrefix(InspirationHandler __instance)
+        {
+            if (_samplingNoInspiration)
+            {
+                var p = PawnFromIH(__instance);
+                if (p != null && p == _currentPawn)
+                    return false; // skip vanilla EndInspiration during sampling
+            }
+            return !SuppressForIH(__instance);
+        }
+
+        // Precise, overload-safe logging that also shows success/fail and (when present) which def was attempted.
+        public static void TryStartInspiration_Postfix_WithDef(InspirationHandler __instance, InspirationDef def, bool __result)
+        {
+            if (!Prefs.DevMode || !QualityInsightsMod.Settings.enableDebugLogs) return;
+            var p = PawnFromIH(__instance);
+            var cur = GetCurrentInspiration(__instance);
+            int now = Find.TickManager?.TicksGame ?? 0;
+            Log.Message($"[QI] TryStartInspiration {(__result ? "OK" : "FAIL")} | pawn={P(p)} | def={def?.defName ?? "<null>"} | cur={(cur?.def?.defName ?? "<none>")} @tick {now}");
+        }
+
+        public static void TryStartInspiration_Postfix_NoDef(InspirationHandler __instance, bool __result)
+        {
+            if (!Prefs.DevMode || !QualityInsightsMod.Settings.enableDebugLogs) return;
+            var p = PawnFromIH(__instance);
+            var cur = GetCurrentInspiration(__instance);
+            int now = Find.TickManager?.TicksGame ?? 0;
+            Log.Message($"[QI] TryStartInspiration {(__result ? "OK" : "FAIL")} | pawn={P(p)} | cur={(cur?.def?.defName ?? "<none>")} @tick {now}");
+        }
 
         public static void MakeRecipeProducts_Prefix(
             [HarmonyArgument(0)] RecipeDef recipeDef,
@@ -502,8 +729,10 @@ namespace QualityInsights.Patching
             {
                 _currentPawn = worker;
                 _currentSkill = SkillDefOf.Construction;
-                _hadInspirationAtRoll = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
+                bool inspNow = worker?.InspirationDef == InspirationDefOf.Inspired_Creativity;
+                _hadInspirationAtRoll = (_hadInspirationAtRoll ?? false) || inspNow;
                 _wasProdSpecAtRoll = QualityRules.IsProductionSpecialistFor(worker, SkillDefOf.Construction);
+                if (DebugLogs) Log.Message($"[QI] RollContext: {P(worker)} | insp-at-roll={InspState(worker)} | skill=Construction");
 
                 var built = __instance?.def?.entityDefToBuild as ThingDef;
                 if (built == null || worker == null) return;
@@ -600,10 +829,16 @@ namespace QualityInsights.Patching
             // START roll scope
             _rollDepth++;
 
-            _currentPawn = pawn;
+            _currentPawn  = pawn;
             _currentSkill = relevantSkill;
-            _hadInspirationAtRoll = pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
-            _wasProdSpecAtRoll = QualityRules.IsProductionSpecialistFor(pawn, relevantSkill);
+
+            // Only record these for the *real* roll, not the estimator loop
+            if (!_samplingNoInspiration)
+            {
+                bool inspNow = pawn?.InspirationDef == InspirationDefOf.Inspired_Creativity;
+                _hadInspirationAtRoll = (_hadInspirationAtRoll ?? false) || inspNow;
+                _wasProdSpecAtRoll    = QualityRules.IsProductionSpecialistFor(pawn, relevantSkill);
+            }
 
             _clearedInspThisRoll = false;
 
@@ -705,19 +940,27 @@ namespace QualityInsights.Patching
             bool cheatWas = s.enableCheat;
 
             _inCheatEval = true;
-            _suppressInspirationSideEffects = true; // no vanilla insp side-effects
-            _samplingNoInspiration = true;          // compute true baseline
+            _suppressInspirationSideEffects = true;
+            _suppressInspPawnId = pawn?.thingIDNumber ?? -1;
+            _suppressInspDepth++;
+            _samplingNoInspiration = true;
             try
             {
-                s.enableCheat = false; // **critical**: never sample with cheat on
+                s.enableCheat = false; // never sample with cheat on
                 chances = QualityEstimator.EstimateChances(pawn, skill, s.estimationSamples);
             }
             finally
             {
                 s.enableCheat = cheatWas;
                 _samplingNoInspiration = false;
-                _suppressInspirationSideEffects = false;
                 _inCheatEval = false;
+
+                _suppressInspDepth = Math.Max(0, _suppressInspDepth - 1);
+                if (_suppressInspDepth == 0)
+                {
+                    _suppressInspirationSideEffects = false;
+                    _suppressInspPawnId = 0;
+                }
             }
 
             foreach (var qc in Enum.GetValues(typeof(QualityCategory)).Cast<QualityCategory>().OrderByDescending(q => q))
@@ -779,6 +1022,124 @@ namespace QualityInsights.Patching
                 }
             }
             catch { /* never break gameplay */ }
+        }
+
+        // Return whichever Inspiration slot on the handler is currently non-null.
+        // Works across version/mod renames.
+        private static Inspiration? GetCurrentInspiration(InspirationHandler? ih)
+        {
+            if (ih == null) return null;
+
+            // 1) Fast paths we already try
+            try
+            {
+                var prop = AccessTools.Property(typeof(InspirationHandler), "CurInspiration");
+                if (prop != null)
+                {
+                    var v = prop.GetValue(ih, null) as Inspiration;
+                    if (v != null) return v;
+                }
+            } catch { }
+
+            try
+            {
+                var field = AccessTools.Field(typeof(InspirationHandler), "curInspiration");
+                if (field != null)
+                {
+                    var v = field.GetValue(ih) as Inspiration;
+                    if (v != null) return v;
+                }
+            } catch { }
+
+            // 2) Robust fallback: scan *all* instance props/fields of type Inspiration
+            try
+            {
+                foreach (var p in typeof(InspirationHandler).GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (p.PropertyType == typeof(Inspiration) && p.CanRead)
+                    {
+                        var v = p.GetValue(ih, null) as Inspiration;
+                        if (v != null) return v;
+                    }
+                }
+            } catch { }
+
+            try
+            {
+                foreach (var f in typeof(InspirationHandler).GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (f.FieldType == typeof(Inspiration))
+                    {
+                        var v = f.GetValue(ih) as Inspiration;
+                        if (v != null) return v;
+                    }
+                }
+            } catch { }
+
+            return null;
+        }
+
+        private static Pawn? PawnFromIH(InspirationHandler ih)
+        {
+            try { return AccessTools.Field(typeof(InspirationHandler), "pawn")?.GetValue(ih) as Pawn; }
+            catch { return null; }
+        }
+
+        private static bool SuppressForIH(InspirationHandler ih)
+        {
+            if (!_suppressInspirationSideEffects || _suppressInspDepth <= 0) return false;
+            var p = PawnFromIH(ih);
+            return p != null && p.thingIDNumber == _suppressInspPawnId;
+        }
+
+        private static void ForceEndInspiredCreativity(Pawn worker)
+        {
+            if (worker == null) return;
+            var ih = worker.mindState?.inspirationHandler;
+            if (ih == null) return;
+
+            bool ended = false;
+            string before = InspState(worker);
+
+            // Preferred path: use the API, but ONLY if the current def is Inspired_Creativity
+            try
+            {
+                var cur = GetCurrentInspiration(ih);
+                if (cur != null && cur.def == InspirationDefOf.Inspired_Creativity)
+                {
+                    ih.EndInspiration(cur);
+                    ended = true;
+                }
+            }
+            catch { /* fall through */ }
+
+            // Fallback: clear regardless of current def using prop/field
+            if (!ended)
+            {
+                try { ended = ClearAnyInspiration(ih); } catch { }
+            }
+
+            // Only Creativity gets a short re-grant block
+            if (ended)
+            {
+                int now = Find.TickManager?.TicksGame ?? 0;
+                _blockCreativityUntilTick[worker.thingIDNumber] = now + 2;  // 2 ticks is invisible to players
+
+                if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
+                {
+                    string after = InspState(worker);
+                    Log.Message($"[QI] Ended Inspired_Creativity for {worker.LabelShortCap} @tick {now} | before={before} -> after={after} (block until {now + 2})");
+                }
+            }
+            else
+            {
+                if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
+                {
+                    int now = Find.TickManager?.TicksGame ?? 0;
+                    string cur = InspState(worker);
+                    Log.Message($"[QI] Did NOT end inspiration for {worker.LabelShortCap} @tick {now} | current={cur} (not Creativity)");
+                }
+            }
         }
 
         public static void AfterSetQuality(CompQuality __instance, QualityCategory q)
@@ -900,6 +1261,50 @@ namespace QualityInsights.Patching
             AfterBump:
 
                 int now = Find.TickManager?.TicksGame ?? 0;
+
+                // --- Consume Inspired: Creativity if cheat is enabled and pawn had it for this roll ---
+                try
+                {
+                    if (QualityInsightsMod.Settings.enableCheat && worker != null)
+                    {
+                        bool hadCreativity = _hadInspirationAtRoll ?? false;
+                        if (hadCreativity)
+                        {
+                            var ih = worker.mindState?.inspirationHandler;
+                            string before = InspState(worker);
+                            bool cleared = false;
+
+                            // 1) Try the safe API if the CURRENT def is Creativity
+                            try
+                            {
+                                var cur = GetCurrentInspiration(ih);
+                                if (cur != null && cur.def == InspirationDefOf.Inspired_Creativity)
+                                {
+                                    ih.EndInspiration(cur);
+                                    cleared = true;
+                                }
+                            }
+                            catch { /* keep going */ }
+
+                            // 2) Regardless of current state, hard-clear via prop/field
+                            if (!cleared) cleared = ClearAnyInspiration(ih);
+
+                            // 3) Block immediate re-grant (both general + creativity)
+                            int nowTick = Find.TickManager?.TicksGame ?? 0;
+                            _blockCreativityUntilTick[worker.thingIDNumber] = nowTick + 2;
+                            _blockInspUntilTick[worker.thingIDNumber]       = nowTick + 2;
+
+                            try { TouchInspirationCooldown(ih, nowTick); } catch { }
+
+                            if (Prefs.DevMode && QualityInsightsMod.Settings.enableDebugLogs)
+                            {
+                                string after = InspState(worker);
+                                Log.Message($"[QI] Cheat.consume Creativity | had={hadCreativity} | before={before} -> after={after} | cleared={cleared} | block until {nowTick + 2}");
+                            }
+                        }
+                    }
+                }
+                catch { /* never break gameplay */ }
 
                 // Optional: silence toasts on Masterwork/Legendary, per settings
                 if ((q == QualityCategory.Masterwork && QualityInsightsMod.Settings.silenceMasterworkNotifs) ||

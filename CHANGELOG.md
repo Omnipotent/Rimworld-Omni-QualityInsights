@@ -11,6 +11,18 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 
 ---
 
+## [1.0.3] – Inspiration & construction stability – 2025-08-25
+
+### Fixed
+- Dev **cheat** now fully respects active Inspirations during real rolls.
+- If the pawn had **Inspired: Creativity** for the roll and the cheat bumps quality, that inspiration is **correctly consumed** once (and briefly cooldown-blocked to match vanilla behavior).
+- Avoided version-specific crashes by making `TryStartInspiration` patching **overload-safe** across game versions.
+
+### Changed
+- Developer logging: `TryStartInspiration` entries now include **OK/FAIL** and the attempted def; `EndInspiration` logs are suppressed during internal evaluation to reduce noise.
+
+---
+
 ## [1.0.2] – Fix For Logging Bug After Stripped Item Fix – 2025-08-24
 
 ### Fixed
