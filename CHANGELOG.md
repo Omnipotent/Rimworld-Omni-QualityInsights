@@ -11,6 +11,17 @@ This project aims to follow [Keep a Changelog](https://keepachangelog.com/) conv
 
 ---
 
+## [1.0.2] – Fix For Logging Bug After Stripped Item Fix – 2025-08-24
+
+### Fixed
+
+- Stopped **stripped/equipped world-spawned apparel** from being logged as player creations by gating `SetQuality` to real creation contexts (recipe/construction) and preferring the bound worker.
+- Restored **construction logging** that regressed in 1.0.1 by deferring roll-state cleanup so the builder/skill persist until `AfterSetQuality`.
+- Fixed occasional **“Lvl 0” / wrong skill** on crafted items by keeping the roll skill alive through `SetQuality` (no more fallback to heuristics).
+- Minor debug-log polish for construction: clearer “prefix” and “mats bound” traces.
+
+---
+
 ## [1.0.1] – Fix For Stripped Items – 2025-08-24
 
 ### Fixed

@@ -35,6 +35,7 @@ namespace QualityInsights.Patching
 
         // Cache worker per product (safe to hold weakly)
         private static readonly ConditionalWeakTable<Thing, Pawn> _productToWorker = new();
+        private static readonly ConditionalWeakTable<Thing, SkillDef> _productToSkill = new();
 
         // Mats are stored by stable id so they survive wrapping/replacement/minification.
         private static readonly Dictionary<int, List<string>> _matsById = new();
@@ -682,8 +683,14 @@ namespace QualityInsights.Patching
 
             // END roll scope
             if (_rollDepth > 0) _rollDepth--;
-            _currentPawn  = null;
-            _currentSkill = null;
+
+            // Do NOT clear here when we're in a creation pipeline that will immediately call SetQuality.
+            // AfterSetQuality will always clear these at the end.
+            if (!_inConstructionRun && _currentWorkerFromRecipe == null)
+            {
+                _currentPawn  = null;
+                _currentSkill = null;
+            }
         }
 
         private static QualityCategory? TryComputeCheatOverride(Pawn pawn, SkillDef skill)
